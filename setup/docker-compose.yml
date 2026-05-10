@@ -107,12 +107,9 @@ services:
       - notification-service-logs:/var/log/services/notification:ro
       - employee-service-logs:/var/log/services/employee:ro
       - client-service-logs:/var/log/services/client:ro
-      - account-service-logs:/var/log/services/account:ro
-      - card-service-logs:/var/log/services/card:ro
-      - transfer-service-logs:/var/log/services/transfer:ro
+      - banking-service-logs:/var/log/services/banking:ro
       - exchange-service-logs:/var/log/services/exchange:ro
       - verification-service-logs:/var/log/services/verification:ro
-      - transaction-service-logs:/var/log/services/transaction:ro
       - order-service-logs:/var/log/services/order:ro
       - stock-service-logs:/var/log/services/stock:ro
     depends_on:
@@ -282,85 +279,30 @@ services:
       retries: 10
       start_period: 30s
 
-  # Account Service
-  account-service:
+  # Banking Service — consolidates account, card, credit, transaction, transfer
+  banking-service:
     build:
       context: ..
-      dockerfile: account-service/Dockerfile
+      dockerfile: banking-service/Dockerfile
       args:
-        SERVER_PORT: ${ACCOUNT_SERVER_PORT:-8084}
-    container_name: banka_account_service
+        SERVER_PORT: ${BANKING_SERVER_PORT:-8084}
+    container_name: banka_banking_service
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      ACCOUNT_DB_HOST: postgres
-      ACCOUNT_DB_PORT: ${ACCOUNT_DB_INTERNAL_PORT}
-      ACCOUNT_DB_NAME: ${ACCOUNT_DB_NAME}
-      ACCOUNT_DB_USER: ${ACCOUNT_DB_USER}
-      ACCOUNT_DB_PASSWORD: ${ACCOUNT_DB_PASSWORD}
-      ACCOUNT_SERVER_PORT: ${ACCOUNT_SERVER_PORT}
-      SERVER_PORT: ${ACCOUNT_SERVER_PORT}
-      RABBITMQ_HOST: ${RABBITMQ_HOST}
-      RABBITMQ_PORT: ${RABBITMQ_PORT}
-      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      BANKING_SERVER_PORT: ${BANKING_SERVER_PORT:-8084}
+      SERVER_PORT: ${BANKING_SERVER_PORT:-8084}
+      BANKING_DB_HOST: postgres
+      BANKING_DB_PORT: ${BANKING_DB_PORT:-5432}
+      BANKING_DB_NAME: ${BANKING_DB_NAME:-bankingdb}
+      BANKING_DB_USER: ${BANKING_DB_USER:-postgres}
+      BANKING_DB_PASSWORD: ${BANKING_DB_PASSWORD:-postgres}
       JWT_SECRET: ${JWT_SECRET}
-      SERVICES_USER_URL: ${SERVICES_USER_URL}
-      CLIENT_SERVER_PORT: ${CLIENT_SERVER_PORT}
-      SERVICES_CARD_URL: ${SERVICES_CARD_URL}
-      NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE}
-      NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE}
-      NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY}
+      SERVICES_USER_URL: ${SERVICES_USER_URL:-http://client-service:8083}
+      SERVICES_CARD_URL: ${SERVICES_CARD_URL:-http://banking-service:8084}
       SERVICES_VERIFICATION_URL: http://verification-service:${VERIFICATION_SERVER_PORT:-8086}
-      SERVICE_VERIFICATION_PORT: ${SERVICE_VERIFICATION_PORT}
-      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: none
-      OTEL_LOGS_EXPORTER: none
-      OTEL_SERVICE_NAME: accountService
-      LOGGING_FILE_PATH: /var/log/banka
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      otel-collector:
-        condition: service_started
-    ports:
-      - "${ACCOUNT_SERVER_PORT:-8084}:${ACCOUNT_SERVER_PORT:-8084}"
-    networks:
-      - banka-network
-    volumes:
-      - account-service-logs:/var/log/banka
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:${ACCOUNT_SERVER_PORT:-8084}/actuator/health/liveness || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-
-  # Transfer Service
-  transfer-service:
-    build:
-      context: ..
-      dockerfile: transfer-service/Dockerfile
-      args:
-        SERVER_PORT: ${TRANSFER_SERVICE_PORT:-8085}
-    container_name: banka_transfer_service
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      SERVER_PORT: ${TRANSFER_SERVICE_PORT:-8085}
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ${TRANSFER_DB_NAME:-transferdb}
-      DB_USER: ${TRANSFER_DB_USER:-postgres}
-      DB_PASSWORD: ${TRANSFER_DB_PASSWORD:-postgres}
-      JWT_SECRET: ${JWT_SECRET}
+      SKIP_VERIFICATION: ${SKIP_VERIFICATION:-false}
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
       RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
@@ -368,38 +310,31 @@ services:
       NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification-service-queue}
       NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
       NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY:-employee.#}
-      CLIENT_SERVICE_HOST: client-service
-      CLIENT_SERVER_PORT: ${CLIENT_SERVER_PORT:-8083}
-      ACCOUNT_SERVICE_HOST: account-service
-      ACCOUNT_SERVER_PORT: ${ACCOUNT_SERVER_PORT:-8084}
-      EXCHANGE_SERVICE_HOST: exchange-service
-      EXCHANGE_SERVER_PORT: ${EXCHANGE_SERVER_PORT:-8085}
-      VERIFICATION_SERVICE_HOST: verification-service
-      SERVICES_VERIFICATION_URL: http://verification-service:${VERIFICATION_SERVER_PORT:-8086}
-      VERIFICATION_SERVER_PORT: ${VERIFICATION_SERVER_PORT:-8086}
       MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_TRACES_EXPORTER: otlp
       OTEL_METRICS_EXPORTER: none
       OTEL_LOGS_EXPORTER: none
-      OTEL_SERVICE_NAME: transferService
+      OTEL_SERVICE_NAME: banking-service
       LOGGING_FILE_PATH: /var/log/banka
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      verification-service:
+        condition: service_healthy
       otel-collector:
         condition: service_started
     expose:
-      - "${TRANSFER_SERVICE_PORT:-8085}"
+      - "${BANKING_SERVER_PORT:-8084}"
     networks:
       - banka-network
     volumes:
-      - transfer-service-logs:/var/log/banka
+      - banking-service-logs:/var/log/banka
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:${TRANSFER_SERVICE_PORT:-8085}/actuator/health/liveness || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:${BANKING_SERVER_PORT:-8084}/actuator/health/liveness || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -504,75 +439,6 @@ services:
       retries: 10
       start_period: 30s
 
-  # Transaction Service
-  transaction-service:
-    build:
-      context: ..
-      dockerfile: transaction-service/Dockerfile
-      args:
-        SERVER_PORT: ${TRANSACTION_SERVER_PORT:-8087}
-    container_name: banka_transaction_service
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      TRANSACTION_SERVER_PORT: ${TRANSACTION_SERVER_PORT}
-      SERVER_PORT: ${TRANSACTION_SERVER_PORT}
-      TRANSACTION_DB_HOST: postgres
-      TRANSACTION_DB_PORT: ${TRANSACTION_DB_INTERNAL_PORT}
-      TRANSACTION_DB_NAME: ${TRANSACTION_DB_NAME}
-      TRANSACTION_DB_USER: ${TRANSACTION_DB_USER}
-      TRANSACTION_DB_PASSWORD: ${TRANSACTION_DB_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET}
-      SERVICES_USER_URL: ${SERVICES_USER_URL}
-      CLIENT_SERVER_PORT: ${CLIENT_SERVER_PORT}
-      SERVICES_VERIFICATION_URL: http://verification-service:${VERIFICATION_SERVER_PORT:-8086}
-      SERVICE_VERIFICATION_PORT: ${SERVICE_VERIFICATION_PORT}
-      SERVICES_EXCHANGE_URL: ${SERVICES_EXCHANGE_URL}
-      SERVICE_EXCHANGE_PORT: ${EXCHANGE_SERVER_PORT}
-      SERVICES_ACCOUNT_URL: ${SERVICES_ACCOUNT_URL}
-      SERVICE_ACCOUNT_PORT: ${ACCOUNT_SERVER_PORT}
-      RABBITMQ_HOST: ${RABBITMQ_HOST}
-      RABBITMQ_PORT: ${RABBITMQ_PORT}
-      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
-      NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE}
-      NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE}
-      NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY}
-      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: none
-      OTEL_LOGS_EXPORTER: none
-      OTEL_SERVICE_NAME: transaction-service
-      LOGGING_FILE_PATH: /var/log/banka
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      account-service:
-        condition: service_healthy
-      exchange-service:
-        condition: service_healthy
-      verification-service:
-        condition: service_healthy
-      otel-collector:
-        condition: service_started
-    expose:
-      - "${TRANSACTION_SERVER_PORT:-8087}"
-    networks:
-      - banka-network
-    volumes:
-      - transaction-service-logs:/var/log/banka
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:${TRANSACTION_SERVER_PORT:-8087}/actuator/health/liveness || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-
   # Verification Service
   verification-service:
     build:
@@ -627,134 +493,6 @@ services:
       retries: 10
       start_period: 30s
 
-  # Card Service
-  card-service:
-    build:
-      context: ..
-      dockerfile: card-service/Dockerfile
-      args:
-        SERVER_PORT: ${CARD_SERVER_PORT:-8087}
-    container_name: banka_card_service
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      CARD_SERVER_PORT: ${CARD_SERVER_PORT:-8087}
-      CARD_DB_HOST: postgres
-      CARD_DB_PORT: ${CARD_DB_INTERNAL_PORT:-5432}
-      CARD_DB_NAME: ${CARD_DB_NAME:-card_db}
-      CARD_DB_USER: ${CARD_DB_USER:-postgres}
-      CARD_DB_PASSWORD: ${CARD_DB_PASSWORD:-postgres}
-      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
-      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
-      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
-      NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification-service-queue}
-      NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
-      NOTIFICATION_CARD_ROUTING_KEY: ${NOTIFICATION_CARD_ROUTING_KEY:-card.#}
-      SERVICES_CLIENT_URL: ${SERVICES_CLIENT_URL:-http://client-service:8083}
-      SERVICES_ACCOUNT_URL: ${SERVICES_ACCOUNT_URL:-http://account-service:8084}
-
-      SERVICES_VERIFICATION_URL: http://verification-service:${VERIFICATION_SERVER_PORT:-8086}
-
-      SERVICE_VERIFICATION_PORT: ${VERIFICATION_SERVER_PORT:-8086}
-      CARD_REQUEST_VERIFICATION_EXPIRATION_MINUTES: ${CARD_REQUEST_VERIFICATION_EXPIRATION_MINUTES:-15}
-      CARD_CREATION_AUTOMATIC_DEFAULT_LIMIT: ${CARD_CREATION_AUTOMATIC_DEFAULT_LIMIT:-1000000}
-      JWT_SECRET: ${JWT_SECRET}
-      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: none
-      OTEL_LOGS_EXPORTER: none
-      OTEL_SERVICE_NAME: cardService
-      LOGGING_FILE_PATH: /var/log/banka
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      otel-collector:
-        condition: service_started
-    expose:
-      - "${CARD_SERVER_PORT:-8090}"
-    networks:
-      - banka-network
-    volumes:
-      - card-service-logs:/var/log/banka
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:${CARD_SERVER_PORT:-8090}/actuator/health/liveness || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-
-  # Credit Service
-  credit-service:
-    build:
-      context: ..
-      dockerfile: credit-service/Dockerfile
-      args:
-        SERVER_PORT: ${CREDIT_SERVER_PORT:-8089}
-    container_name: banka_credit_service
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      CREDIT_SERVER_PORT: ${CREDIT_SERVER_PORT:-8089}
-      SERVER_PORT: ${CREDIT_SERVER_PORT:-8089}
-      CREDIT_DB_HOST: postgres
-      CREDIT_DB_PORT: 5432
-      CREDIT_DB_NAME: ${CREDIT_DB_NAME:-credit_db}
-      CREDIT_DB_USER: ${CREDIT_DB_USER:-postgres}
-      CREDIT_DB_PASSWORD: ${CREDIT_DB_PASSWORD:-postgres}
-      JWT_SECRET: ${JWT_SECRET}
-      SERVICES_USER_URL: ${SERVICES_USER_URL}
-      CLIENT_SERVER_PORT: ${CLIENT_SERVER_PORT:-8083}
-      SERVICES_CARD_URL: ${SERVICES_CARD_URL:-http://card-service:8090}
-      SERVICES_VERIFICATION_URL: http://verification-service:${VERIFICATION_SERVER_PORT:-8086}
-      SKIP_VERIFICATION: ${SKIP_VERIFICATION:-false}
-      SERVICES_EXCHANGE_URL: ${SERVICES_EXCHANGE_URL}
-      SERVICES_ACCOUNT_URL: ${SERVICES_ACCOUNT_URL}
-      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
-      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
-      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
-      NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification-service-queue}
-      NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
-      NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY:-employee.#}
-      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: none
-      OTEL_LOGS_EXPORTER: none
-      OTEL_SERVICE_NAME: credit-service
-      LOGGING_FILE_PATH: /var/log/banka
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      account-service:
-        condition: service_healthy
-      verification-service:
-        condition: service_healthy
-      otel-collector:
-        condition: service_started
-    expose:
-      - "${CREDIT_SERVER_PORT:-8089}"
-    networks:
-      - banka-network
-    volumes:
-      - credit-service-logs:/var/log/banka
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:${CREDIT_SERVER_PORT:-8089}/actuator/health/liveness || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-
   # Order Service
   order-service:
     build:
@@ -781,8 +519,8 @@ services:
       NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification-service-queue}
       NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
       NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY:-employee.#}
-      ACCOUNT_SERVICE_HOST: account-service
-      ACCOUNT_SERVER_PORT: ${ACCOUNT_SERVER_PORT:-8084}
+      ACCOUNT_SERVICE_HOST: banking-service
+      ACCOUNT_SERVER_PORT: ${BANKING_SERVER_PORT:-8084}
       EMPLOYEE_SERVICE_HOST: employee-service
       USER_SERVER_PORT: ${USER_SERVER_PORT:-8081}
       CLIENT_SERVICE_HOST: client-service
@@ -834,31 +572,22 @@ services:
     environment:
       SERVER_PORT: ${USER_SERVER_PORT:-8081}
       CLIENT_SERVICE_PORT: ${CLIENT_SERVER_PORT:-8083}
-      ACCOUNT_SERVICE_PORT: ${ACCOUNT_SERVER_PORT:-8084}
-      TRANSFER_SERVICE_PORT: ${TRANSFER_SERVICE_PORT:-8085}
+      BANKING_SERVICE_PORT: ${BANKING_SERVER_PORT:-8084}
       EXCHANGE_SERVER_PORT: ${EXCHANGE_SERVER_PORT:-8085}
       VERIFICATION_SERVER_PORT: ${VERIFICATION_SERVER_PORT:-8086}
-      TRANSACTION_SERVER_PORT: ${TRANSACTION_SERVER_PORT:-8087}
-      CARD_SERVICE_PORT: ${CARD_SERVER_PORT:-8087}
-      CREDIT_SERVER_PORT: ${CREDIT_SERVER_PORT:-8089}
       NOTIFICATION_SERVICE_PORT: ${NOTIFICATION_SERVER_PORT:-8006}
       ORDER_SERVER_PORT: ${ORDER_SERVER_PORT:-8088}
+      STOCK_SERVICE_PORT: ${STOCK_SERVICE_PORT:-8090}
     depends_on:
       employee-service:
         condition: service_healthy
       client-service:
         condition: service_healthy
-      account-service:
-        condition: service_healthy
-      card-service:
+      banking-service:
         condition: service_healthy
       exchange-service:
         condition: service_healthy
       verification-service:
-        condition: service_healthy
-      transaction-service:
-        condition: service_healthy
-      credit-service:
         condition: service_healthy
       notification-service:
         condition: service_healthy
@@ -884,13 +613,9 @@ volumes:
   notification-service-logs:
   employee-service-logs:
   client-service-logs:
-  account-service-logs:
-  card-service-logs:
-  transfer-service-logs:
+  banking-service-logs:
   exchange-service-logs:
   verification-service-logs:
-  transaction-service-logs:
   order-service-logs:
-  credit-service-logs:
   stock-service-logs:
 
