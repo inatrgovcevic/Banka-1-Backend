@@ -27,8 +27,7 @@ dependencies {
 	implementation 'org.aspectj:aspectjweaver:1.9.24'
 	// Export SLF4J API so consumers can compile against org.slf4j.Logger
 	api 'org.slf4j:slf4j-api:2.0.9'
-testImplementation 'org.springframework.boot:spring-boot-starter-actuator-test'
-	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	// PR_16 C16.1: phantom starter-actuator-test i starter-webmvc-test uklonjeni.
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	implementation 'io.micrometer:micrometer-tracing-bridge-otel'
 	implementation 'net.logstash.logback:logstash-logback-encoder:9.0'
