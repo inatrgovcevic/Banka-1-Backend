@@ -8,20 +8,23 @@ banka.security.id=id
 banka.security.roles-claim=roles
 #ms
 banka.security.expiration-time=3600000
-#months
-token.refresh.expiration-time=1
+#days (PR_01 C1.7: smanjen sa 1 mesec)
+token.refresh.expiration-time=${TOKEN_REFRESH_EXPIRATION_DAYS:7}
 #minutes
 token.confirmation.expiration-time=15
+# Account lockout (Celina 1, Scenario 5)
+account.lockout.max-attempts=5
+account.lockout.duration-minutes=15
 banka.security.permissions-claim=permissions
-banka.security.permit-all=/auth/*,/v3/api-docs/**,/v3/api-docs.yaml,/swagger-ui/**,/swagger-ui.html,/actuator/**
-springdoc.api-docs.enabled=true
-springdoc.swagger-ui.enabled=true
+banka.security.permit-all=/auth/*,/v3/api-docs/**,/v3/api-docs.yaml,/swagger-ui/**,/swagger-ui.html,/actuator/health/liveness,/actuator/health/readiness,/actuator/info
+springdoc.api-docs.enabled=${SWAGGER_ENABLED:true}
+springdoc.swagger-ui.enabled=${SWAGGER_ENABLED:true}
 springdoc.swagger-ui.config-url=/employees/v3/api-docs/swagger-config
 springdoc.swagger-ui.url=/employees/v3/api-docs
 server.forward-headers-strategy=FRAMEWORK
 url.reset-password=${USER_RESET_PASSWORD_URL:http://localhost:3000/reset-password?token=}
 url.activate-account=${USER_ACTIVATE_ACCOUNT_URL:http://localhost:3000/activate?token=}
-management.endpoints.web.exposure.include=*
+management.endpoints.web.exposure.include=health,info,prometheus
 management.endpoint.health.probes.enabled=true
 management.tracing.sampling.probability=1.0
 management.otlp.tracing.endpoint=${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
@@ -44,4 +47,8 @@ spring.jpa.hibernate.ddl-auto=validate
 spring.jpa.show-sql=true
 # Liquibase
 spring.liquibase.enabled=true
-spring.liquibase.change-log=classpath:db/changelog/db.changelog-master.xml
+spring.liquibase.change-log=classpath:db/changelog/db-changelog-employee.xml
+# Liquibase contexts default to "dev" so admin123 + 19-employee seed runs locally and in CI.
+# Production deploy MUST set LIQUIBASE_CONTEXTS to a context that does NOT include "dev" (e.g. "prod")
+# so the dev-only seed changesets are skipped.
+spring.liquibase.contexts=${LIQUIBASE_CONTEXTS:dev}

@@ -1,6 +1,9 @@
 -- liquibase formatted sql
--- changeset ilijan:4
--- (Šifra ovde mora biti hesirana Argonom2. Recimo da je šifra 'admin123', Argon2 bi bio nešto ovako:)
+-- changeset ilijan:4 context:dev
+-- DEV-ONLY seed: hard-coded employee credentials for local development and Cypress smoke tests.
+-- Argon2 hash below corresponds to plain password 'admin123'. NEVER seed this in production —
+-- production deploy must run with spring.liquibase.contexts=prod (or omit dev) to skip this changeset.
+-- Real production employees are created by an admin via the /employees REST endpoint after PR_01 is merged.
 INSERT INTO employees (ime, prezime, datum_rodjenja, pol, email, username, password, pozicija, departman, aktivan, role,
                        version, deleted)
 VALUES ('Admin', 'Adminovic', '1990-01-01', 'M', 'admin@banka.com', 'admin',

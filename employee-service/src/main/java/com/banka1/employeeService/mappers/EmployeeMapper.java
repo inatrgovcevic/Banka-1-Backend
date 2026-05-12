@@ -46,6 +46,8 @@ public class EmployeeMapper {
         zaposlen.setPozicija(dto.getPozicija());
         zaposlen.setDepartman(dto.getDepartman());
         zaposlen.setRole(dto.getRole());
+        // Celina 1: default je aktivan, admin moze eksplicitno traziti neaktivnog
+        zaposlen.setAktivan(dto.getAktivan() == null || dto.getAktivan());
         zaposlenService.setovanjePermisija(zaposlen);
         return zaposlen;
     }
@@ -64,6 +66,10 @@ public class EmployeeMapper {
                 zaposlen.getPrezime(),
                 zaposlen.getEmail(),
                 zaposlen.getUsername(),
+                zaposlen.getDatumRodjenja(),
+                zaposlen.getPol(),
+                zaposlen.getBrojTelefona(),
+                zaposlen.getAdresa(),
                 zaposlen.getPozicija(),
                 zaposlen.getDepartman(),
                 zaposlen.isAktivan(),

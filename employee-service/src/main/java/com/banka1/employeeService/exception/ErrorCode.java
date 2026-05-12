@@ -36,6 +36,12 @@ public enum ErrorCode {
     /** Nevazeci, istekli ili nepostojeci token. */
     INVALID_TOKEN(HttpStatus.BAD_REQUEST, "ERR_AUTH_002", "Neispravan token"),
 
+    /** Token je istekao (Spec Celina 1, Sc 9: "Link za aktivaciju je istekao"). */
+    TOKEN_EXPIRED(HttpStatus.BAD_REQUEST, "ERR_AUTH_006", "Link za aktivaciju je istekao"),
+
+    /** Nalog privremeno zakljucan zbog previse neuspesnih pokusaja (Spec Celina 1, Sc 5). */
+    ACCOUNT_LOCKED(HttpStatus.FORBIDDEN, "ERR_AUTH_007", "Nalog je privremeno zaključan zbog previše neuspešnih pokušaja"),
+
     /** Korisnik postoji, ali mu nalog nije aktivan. */
     USER_INACTIVE(HttpStatus.FORBIDDEN, "ERR_AUTH_003", "Korisnik nije aktivan"),
 

@@ -48,8 +48,7 @@ public class EmployeeCreateRequestDto {
     /** Adresa stanovanja zaposlenog (opciona). */
     private String adresa;
 
-    /** Korisnicko ime zaposlenog. */
-    @NotBlank(message = "Korisničko ime je obavezno")
+    /** Korisnicko ime zaposlenog (opcioni; ako izostane, izvodi se iz email-a). */
     private String username;
 
     /** Pozicija (radno mesto) zaposlenog. */
@@ -63,4 +62,11 @@ public class EmployeeCreateRequestDto {
     /** RBAC uloga koja se dodeljuje zaposlenom. */
     @NotNull(message = "Uloga (Role) je obavezna")
     private Role role;
+
+    /**
+     * Indikator da li nalog odmah postaje aktivan; ako je {@code null}, podrazumeva se {@code true}
+     * (Celina 1: "Po default-u se podrazumeva da je zaposleni aktivan, ali moguce je napraviti i
+     * zaposlenog koji nije aktivan").
+     */
+    private Boolean aktivan;
 }

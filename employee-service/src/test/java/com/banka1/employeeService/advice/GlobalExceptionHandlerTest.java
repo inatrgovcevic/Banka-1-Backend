@@ -10,6 +10,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.amqp.AmqpException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -77,6 +80,17 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/test-unexpected")
         public void throwUnexpected() {
             throw new RuntimeException("unexpected");
+        }
+
+        @GetMapping("/test-access-denied")
+        public void throwAccessDenied() {
+            throw new AccessDeniedException("denied");
+        }
+
+        @GetMapping("/test-authorization-denied")
+        public void throwAuthorizationDenied() {
+            // Spring Security 6 raises this for @PreAuthorize denials
+            throw new AuthorizationDeniedException("denied", new AuthorizationDecision(false));
         }
 
         @GetMapping("/test-business-not-found")
@@ -147,6 +161,20 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/test-unexpected"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.errorCode").value("ERR_INTERNAL_SERVER"));
+    }
+
+    @Test
+    void accessDeniedReturns403() throws Exception {
+        mockMvc.perform(get("/test-access-denied"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("ERR_FORBIDDEN"));
+    }
+
+    @Test
+    void authorizationDeniedReturns403() throws Exception {
+        mockMvc.perform(get("/test-authorization-denied"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("ERR_FORBIDDEN"));
     }
 
     @Test

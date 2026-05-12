@@ -81,7 +81,9 @@ public class AuthServiceImplementation implements AuthService {
     private String urlActivateAccount;
 
     /**
-     * Trajanje refresh tokena u mesecima.
+     * Trajanje refresh tokena u DANIMA. Ranije je bilo u mesecima (1 mesec = ~30 dana — predugo
+     * za bankarski sistem). PR_01 C1.7 smanjio na 7 dana — usaglašeno sa preporukama za
+     * banking-grade JWT TTL i smanjuje window za stolen-refresh-token attack.
      */
     @Value("${token.refresh.expiration-time}")
     private Long refreshTokenExpiration;
@@ -93,6 +95,19 @@ public class AuthServiceImplementation implements AuthService {
     private Long confirmationTokenExpiration;
 
     /**
+     * Maksimalan broj uzastopnih neuspesnih pokusaja prijave pre privremenog zakljucavanja naloga.
+     * Spec (Celina 1, Scenario 5) trazi zakljucavanje "nakon vise neuspesnih pokusaja".
+     */
+    @Value("${account.lockout.max-attempts:5}")
+    private int accountLockoutMaxAttempts;
+
+    /**
+     * Trajanje zakljucavanja naloga u minutima nakon prekoracenja broja pokusaja.
+     */
+    @Value("${account.lockout.duration-minutes:15}")
+    private long accountLockoutDurationMinutes;
+
+    /**
      * Generise novi pristupni JWT token i rotira refresh token.
      * Pokusava do 3 puta u slucaju kolizije jedinstvene vrednosti tokena.
      *
@@ -102,7 +117,9 @@ public class AuthServiceImplementation implements AuthService {
      * @throws BusinessException ako generisanje ne uspe ni posle 3 pokusaja
      */
     private TokenResponseDto generate(Zaposlen zaposlen, RefreshToken refreshToken) {
-        refreshToken.setExpirationDateTime(LocalDateTime.now().plusMonths(refreshTokenExpiration));
+        // PR_01 C1.7: refreshTokenExpiration je sada u danima, ne mesecima.
+        // 7 dana je banking-grade default; produkcioni override preko TOKEN_REFRESH_EXPIRATION env var.
+        refreshToken.setExpirationDateTime(LocalDateTime.now().plusDays(refreshTokenExpiration));
         for (int i = 0; i < 3; i++) {
             String result = jwtService.generateRandomToken();
             refreshToken.setValue(jwtService.sha256Hex(result));
@@ -123,14 +140,43 @@ public class AuthServiceImplementation implements AuthService {
      * @return odgovor sa pristupnim i refresh tokenom
      * @throws BusinessException ako su kredencijali neispravni ili je nalog neaktivan
      */
-    @Transactional
+    @Transactional(noRollbackFor = BusinessException.class)
     @Override
     public TokenResponseDto login(LoginRequestDto loginDto) {
         Zaposlen zaposlen = zaposlenRepository.findByEmail(loginDto.getEmail()).orElse(null);
-        if (zaposlen == null || !passwordEncoder.matches(loginDto.getPassword(), zaposlen.getPassword()))
-            throw new BusinessException(ErrorCode.INVALID_CREDENTIALS, "Greska pri loginovanju");
+        if (zaposlen == null)
+            // Spec Celina 1, Sc 3: "Korisnik ne postoji" — eksplicitno razlikujemo nepostojeceg
+            // korisnika od pogresne lozinke (Sc 2: "Neispravni unos"). Spec preferira jasne poruke
+            // nad info-leak best practice-om.
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND, "Korisnik ne postoji");
+
+        // Celina 1, Scenario 5: provera privremenog zakljucavanja naloga.
+        LocalDateTime lockedUntil = zaposlen.getLockedUntil();
+        if (lockedUntil != null && lockedUntil.isAfter(LocalDateTime.now()))
+            throw new BusinessException(ErrorCode.ACCOUNT_LOCKED,
+                    "Nalog je privremeno zaključan zbog previše neuspešnih pokušaja");
+
+        if (!passwordEncoder.matches(loginDto.getPassword(), zaposlen.getPassword())) {
+            int attempts = zaposlen.getFailedLoginAttempts() + 1;
+            zaposlen.setFailedLoginAttempts(attempts);
+            if (attempts >= accountLockoutMaxAttempts) {
+                zaposlen.setLockedUntil(LocalDateTime.now().plusMinutes(accountLockoutDurationMinutes));
+            }
+            zaposlenRepository.save(zaposlen);
+            // Spec Sc 2: "Neispravni unos".
+            throw new BusinessException(ErrorCode.INVALID_CREDENTIALS, "Neispravni unos");
+        }
+
         if (!zaposlen.isAktivan())
             throw new BusinessException(ErrorCode.USER_INACTIVE, "Korisnik nije aktivan");
+
+        // Uspesna prijava - resetujemo brojac i otkljucavamo nalog.
+        if (zaposlen.getFailedLoginAttempts() != 0 || zaposlen.getLockedUntil() != null) {
+            zaposlen.setFailedLoginAttempts(0);
+            zaposlen.setLockedUntil(null);
+            zaposlenRepository.save(zaposlen);
+        }
+
         return generate(zaposlen, new RefreshToken(zaposlen));
     }
 
@@ -165,8 +211,13 @@ public class AuthServiceImplementation implements AuthService {
         if (confirmationToken == null || confirmationToken.isBlank() || confirmationToken.length() != 43)
             throw new BusinessException(ErrorCode.INVALID_TOKEN, "Pogresan token");
         ConfirmationToken confirmationTokenCur = confirmationTokenRepository.findByValue(jwtService.sha256Hex(confirmationToken)).orElse(null);
-        if (confirmationTokenCur == null || confirmationTokenCur.getExpirationDateTime() != null && confirmationTokenCur.getExpirationDateTime().isBefore(LocalDateTime.now()))
+        if (confirmationTokenCur == null)
             throw new BusinessException(ErrorCode.INVALID_TOKEN, "Pogresan token");
+        // Spec Sc 9: razlikuj "expired" od "invalid" tako da frontend moze da ponudi
+        // dugme "posaljite novi link" samo u expired slucaju (resend-confirmation endpoint vec postoji).
+        if (confirmationTokenCur.getExpirationDateTime() != null
+                && confirmationTokenCur.getExpirationDateTime().isBefore(LocalDateTime.now()))
+            throw new BusinessException(ErrorCode.TOKEN_EXPIRED, "Link za aktivaciju je istekao");
         if (confirmationTokenCur.getZaposlen().isDeleted())
             throw new BusinessException(ErrorCode.USER_DELETED, "Korisnik je obrisan");
         return confirmationTokenCur.getId();
@@ -222,11 +273,13 @@ public class AuthServiceImplementation implements AuthService {
             throw new BusinessException(ErrorCode.USER_INACTIVE, "Korisnik nije aktivan");
 
         String generated = jwtService.generateRandomToken();
+        // Celina 1, Scenario 4 / 9: reset link vazi 15 minuta (po property-ju, ne hardkodovano).
+        LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(confirmationTokenExpiration);
         if (zaposlen.getConfirmationToken() != null) {
             zaposlen.getConfirmationToken().setValue(jwtService.sha256Hex(generated));
-            zaposlen.getConfirmationToken().setExpirationDateTime(LocalDateTime.now().plusMinutes(confirmationTokenExpiration));
+            zaposlen.getConfirmationToken().setExpirationDateTime(expiresAt);
         } else {
-            ConfirmationToken confirmationToken = new ConfirmationToken(jwtService.sha256Hex(generated), LocalDateTime.now().plusMinutes(15), zaposlen);
+            ConfirmationToken confirmationToken = new ConfirmationToken(jwtService.sha256Hex(generated), expiresAt, zaposlen);
             zaposlen.setConfirmationToken(confirmationToken);
             confirmationTokenRepository.save(confirmationToken);
         }
@@ -273,10 +326,14 @@ public class AuthServiceImplementation implements AuthService {
             return "Nalog je vec aktivan";
 
         String generated = jwtService.generateRandomToken();
+        // Celina 1, Scenario 9: aktivacioni token mora imati istek (default 15 minuta).
+        LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(confirmationTokenExpiration);
         if (zaposlen.getConfirmationToken() != null) {
             zaposlen.getConfirmationToken().setValue(jwtService.sha256Hex(generated));
+            zaposlen.getConfirmationToken().setExpirationDateTime(expiresAt);
         } else {
-            ConfirmationToken confirmationToken = new ConfirmationToken(jwtService.sha256Hex(generated), zaposlen);
+            ConfirmationToken confirmationToken = new ConfirmationToken(
+                    jwtService.sha256Hex(generated), expiresAt, zaposlen);
             zaposlen.setConfirmationToken(confirmationToken);
             confirmationTokenRepository.save(confirmationToken);
         }

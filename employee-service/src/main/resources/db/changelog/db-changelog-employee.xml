@@ -5,9 +5,9 @@
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.17.xsd">
 
-    <!-- Uključujemo naše SQL migracije redosledom kojim treba da se izvrše -->
-    <include file="db/changelog/001-initial-schema.sql"/>
-    <include file="db/changelog/002-seed-data.sql"/>
-    <include file="db/changelog/003-email-username-indexes.sql"/>
+    <include file="db/changelog/employee/001-initial-schema.sql"/>
+    <include file="db/changelog/employee/002-seed-data.sql"/>
+    <include file="db/changelog/employee/003-email-username-indexes.sql"/>
+    <include file="db/changelog/employee/004-account-lockout.sql"/>
 
 </databaseChangeLog>
