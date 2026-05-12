@@ -7,15 +7,15 @@ banka.security.id=id
 banka.security.roles-claim=roles
 #ms
 banka.security.expiration-time=3600000
-#months
-token.refresh.expiration-time=1
+#days (PR_01 C1.7: smanjen sa 1 mesec)
+token.refresh.expiration-time=${TOKEN_REFRESH_EXPIRATION_DAYS:7}
 #minutes
 token.confirmation.expiration-time=5
 banka.security.permissions-claim=permissions
-banka.security.permit-all=/v3/api-docs/**,/v3/api-docs.yaml,/swagger-ui/**,/swagger-ui.html,/actuator/**
+banka.security.permit-all=/v3/api-docs/**,/v3/api-docs.yaml,/swagger-ui/**,/swagger-ui.html,/actuator/health/liveness,/actuator/health/readiness,/actuator/info
 
-springdoc.api-docs.enabled=true
-springdoc.swagger-ui.enabled=true
+springdoc.api-docs.enabled=${SWAGGER_ENABLED:true}
+springdoc.swagger-ui.enabled=${SWAGGER_ENABLED:true}
 springdoc.swagger-ui.config-url=/verification/v3/api-docs/swagger-config
 springdoc.swagger-ui.url=/verification/v3/api-docs
 server.forward-headers-strategy=FRAMEWORK
@@ -50,6 +50,6 @@ spring.datasource.driver-class-name=org.postgresql.Driver
 spring.jpa.hibernate.ddl-auto=validate
 # Liquibase
 spring.liquibase.enabled=true
-spring.liquibase.change-log=classpath:db/changelog/db.changelog-master.xml
+spring.liquibase.change-log=classpath:db/changelog/db-changelog-verification.xml
 
 company.observability.starter.user-id-mdc-enabled=true
