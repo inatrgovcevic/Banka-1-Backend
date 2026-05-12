@@ -1,0 +1,4 @@
+rootProject.name = 'saga-orchestrator-service'
+
+include ':company-observability-starter'
+project(':company-observability-starter').projectDir = file('../company-observability-starter')
