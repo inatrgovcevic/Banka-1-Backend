@@ -103,6 +103,34 @@ public class MarketServiceClient {
     // PR_15 C15.3: liquidateForFund premesteno u TradingServiceClient
     // jer FundHolding entitet zivi u trading-service-u (PR_14 C14.7), a ne ovde.
 
+    /**
+     * Konvertuje iznos iz jedne valute u drugu bez provizije, koristeci exchange-service
+     * koji je konsolidovan unutar market-service-a (PR_02 C2.8).
+     * Koristi se u OTC_PREMIUM_TRANSFER za konverziju USD premije u RSD pre transfera.
+     */
+    @CircuitBreaker(name = CB_NAME)
+    @Retry(name = CB_NAME)
+    public BigDecimal convertCurrencyNoCommission(BigDecimal amount, String fromCurrency, String toCurrency) {
+        log.info("[exchange] convert {} {} -> {}", amount, fromCurrency, toCurrency);
+        ConversionResponse resp = webClient().get()
+                .uri(u -> u.path("/internal/calculate/no-commission")
+                        .queryParam("fromCurrency", fromCurrency)
+                        .queryParam("toCurrency", toCurrency)
+                        .queryParam("amount", amount.toPlainString())
+                        .build())
+                .retrieve()
+                .bodyToMono(ConversionResponse.class)
+                .timeout(Duration.ofSeconds(5))
+                .block();
+        if (resp == null || resp.toAmount() == null) {
+            throw new IllegalStateException("Exchange service nije vratio konvertovani iznos za " + fromCurrency + "->" + toCurrency);
+        }
+        return resp.toAmount();
+    }
+
     public record StockReservationResult(String reservationId, String status) {}
     public record OwnershipTransferResult(String ownershipTransferId, String status) {}
+    public record ConversionResponse(String fromCurrency, String toCurrency,
+                                     BigDecimal fromAmount, BigDecimal toAmount,
+                                     BigDecimal rate, BigDecimal commission) {}
 }

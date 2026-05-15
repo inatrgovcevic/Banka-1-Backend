@@ -3,6 +3,7 @@ package com.banka1.tradingservice.otc.listener;
 import com.banka1.tradingservice.otc.domain.OptionContract;
 import com.banka1.tradingservice.otc.domain.OptionContractStatus;
 import com.banka1.tradingservice.otc.repository.OptionContractRepository;
+import com.banka1.tradingservice.otc.service.OtcPortfolioService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.ExchangeTypes;
@@ -26,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class OtcPremiumFailedListener {
 
     private final OptionContractRepository contractRepo;
+    private final OtcPortfolioService portfolioService;
 
     public record OtcPremiumTransferFailedEvent(Long contractId, String reason) {}
 
@@ -44,6 +46,7 @@ public class OtcPremiumFailedListener {
             if (contract.getStatus() == OptionContractStatus.PENDING_PREMIUM) {
                 contract.setStatus(OptionContractStatus.CANCELED);
                 contractRepo.save(contract);
+                portfolioService.releaseForContract(contract.getSellerId(), contract.getStockTicker(), contract.getAmount());
                 log.info("OTC option contract {} CANCELED (premium failed): {}",
                         contract.getId(), event.reason());
             } else {

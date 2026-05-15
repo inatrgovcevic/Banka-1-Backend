@@ -128,8 +128,11 @@ public class PortfolioServiceImpl implements PortfolioService {
             throw new BadRequestException("Public quantity cannot be negative");
         }
 
-        if (request.getPublicQuantity() > portfolio.getQuantity()) {
-            throw new BadRequestException("Public quantity cannot exceed total quantity");
+        int reserved = portfolio.getReservedQuantity() == null ? 0 : portfolio.getReservedQuantity();
+        int available = portfolio.getQuantity() - reserved;
+        if (request.getPublicQuantity() > available) {
+            throw new BadRequestException("Public quantity cannot exceed available quantity (owned: "
+                    + portfolio.getQuantity() + ", reserved: " + reserved + ", max: " + available + ")");
         }
 
         portfolio.setPublicQuantity(request.getPublicQuantity());

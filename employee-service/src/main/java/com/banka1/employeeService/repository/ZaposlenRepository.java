@@ -1,6 +1,7 @@
 package com.banka1.employeeService.repository;
 
 import com.banka1.employeeService.domain.Zaposlen;
+import com.banka1.employeeService.domain.enums.Role;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -8,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -26,6 +28,8 @@ public interface ZaposlenRepository extends JpaRepository<Zaposlen, Long> {
      * @return opcioni zaposleni ako postoji
      */
     Optional<Zaposlen> findByEmail(String email);
+
+    List<Zaposlen> findByRole(Role role);
 
     /**
      * Proverava da li zaposleni sa zadatom email adresom vec postoji.

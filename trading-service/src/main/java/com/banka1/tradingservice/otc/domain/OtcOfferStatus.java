@@ -7,8 +7,10 @@ public enum OtcOfferStatus {
     PENDING_BUYER,
     /** Prodavac prihvatio — saga-orchestrator je inicirao premium transfer. */
     ACCEPTED,
-    /** Jedna strana odustala. */
+    /** Jedna strana odustala (primila ponudu i odbila je). */
     REJECTED,
+    /** Strana koja je poslala ponudu povukla je pre nego sto je druga strana odgovorila. */
+    WITHDRAWN,
     /** Settlement date prosao bez prihvatanja. */
     EXPIRED
 }

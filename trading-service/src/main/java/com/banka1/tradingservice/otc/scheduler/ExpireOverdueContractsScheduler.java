@@ -3,6 +3,7 @@ package com.banka1.tradingservice.otc.scheduler;
 import com.banka1.tradingservice.otc.domain.OptionContract;
 import com.banka1.tradingservice.otc.domain.OptionContractStatus;
 import com.banka1.tradingservice.otc.repository.OptionContractRepository;
+import com.banka1.tradingservice.otc.service.OtcPortfolioService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -30,6 +31,7 @@ import java.util.List;
 public class ExpireOverdueContractsScheduler {
 
     private final OptionContractRepository contractRepo;
+    private final OtcPortfolioService portfolioService;
 
     @Scheduled(cron = "${otc.expire.cron:0 5 0 * * *}")
     @Transactional
@@ -44,6 +46,7 @@ public class ExpireOverdueContractsScheduler {
         for (OptionContract contract : stale) {
             contract.setStatus(OptionContractStatus.EXPIRED);
             contractRepo.save(contract);
+            portfolioService.releaseForContract(contract.getSellerId(), contract.getStockTicker(), contract.getAmount());
             log.info("Expired OTC option contract id={} ticker={} buyer={} seller={} settled={}",
                     contract.getId(),
                     contract.getStockTicker(),

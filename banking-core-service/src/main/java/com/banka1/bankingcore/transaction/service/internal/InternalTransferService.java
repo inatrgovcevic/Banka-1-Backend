@@ -41,10 +41,28 @@ public class InternalTransferService {
         client.credit(toAccount, amount, target.ownerId());
 
         UUID transferId = UUID.randomUUID();
+        String currency = source.currency() != null ? source.currency() : "RSD";
         jdbcTemplate.update(
                 "INSERT INTO internal_transfer_log (transfer_id, correlation_id, from_account, to_account, amount, currency, status) "
-                        + "VALUES (?::uuid, ?, ?, ?, ?, COALESCE(?, 'RSD'), 'COMPLETED')",
-                transferId.toString(), correlationId, fromAccount, toAccount, amount, source.currency());
+                        + "VALUES (?::uuid, ?, ?, ?, ?, ?, 'COMPLETED')",
+                transferId.toString(), correlationId, fromAccount, toAccount, amount, currency);
+
+        // Write a payment_table record so the transfer appears in the user-facing transaction list.
+        // ON CONFLICT DO NOTHING makes this safe on SAGA retries (correlationId is the order_number).
+        jdbcTemplate.update(
+                "INSERT INTO payment_table "
+                        + "(from_account_number, to_account_number, initial_amount, final_amount, commission, "
+                        + " sender_client_id, recipient_client_id, recipient_name, "
+                        + " payment_code, reference_number, payment_purpose, status, "
+                        + " from_currency, to_currency, order_number, created_at, updated_at, version) "
+                        + "VALUES (?, ?, ?, ?, 0, ?, ?, ?, '289', ?, ?, 'COMPLETED', ?, ?, ?, NOW(), NOW(), 0) "
+                        + "ON CONFLICT (order_number) DO NOTHING",
+                fromAccount, toAccount, amount, amount,
+                source.ownerId(), target.ownerId(),
+                "Account " + toAccount,
+                correlationId, "OTC transfer",
+                currency, currency,
+                correlationId);
 
         log.info("Internal transfer OK: from={} to={} amount={} transferId={} correlationId={}",
                 fromAccount, toAccount, amount, transferId, correlationId);

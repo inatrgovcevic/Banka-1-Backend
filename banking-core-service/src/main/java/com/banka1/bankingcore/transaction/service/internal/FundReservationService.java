@@ -1,5 +1,7 @@
 package com.banka1.bankingcore.transaction.service.internal;
 
+import com.banka1.account_service.domain.enums.CurrencyCode;
+import com.banka1.account_service.repository.AccountRepository;
 import com.banka1.bankingcore.account.client.AccountServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +39,7 @@ public class FundReservationService {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectProvider<AccountServiceClient> accountServiceClientProvider;
+    private final AccountRepository accountRepository;
 
     /**
      * Rezervise iznos. Pretrazuje RSD tekuci racun klijenta i debituje ga preko
@@ -52,10 +55,8 @@ public class FundReservationService {
         if (client == null) {
             throw new IllegalStateException("AccountServiceClient nije dostupan — rezervacija ne moze proci.");
         }
-        String accountNumber = client.findClientAccounts(ownerId).stream()
-                .filter(a -> "RSD".equals(a.currency()))
-                .map(AccountServiceClient.AccountDetails::accountNumber)
-                .findFirst()
+        String accountNumber = accountRepository.findByVlasnikAndCurrencyCode(ownerId, CurrencyCode.RSD)
+                .map(a -> a.getBrojRacuna())
                 .orElseThrow(() -> new IllegalStateException(
                         "Klijent " + ownerId + " nema RSD tekuci racun — rezervacija odbijena."));
 

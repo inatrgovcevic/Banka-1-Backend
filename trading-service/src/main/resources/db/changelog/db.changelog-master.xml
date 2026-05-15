@@ -33,4 +33,7 @@
          Da Fund discovery + "Moji fondovi" ne budu prazni. DEV-only, context:dev. -->
     <include file="db/changelog/trading-otc/006-dev-fund-seed.sql"/>
 
+    <!-- OTC_EXERCISE SAGA: stock_reservations + stock_ownership_transfers tabele. -->
+    <include file="db/changelog/trading-otc/007-stock-reservations.sql"/>
+
 </databaseChangeLog>

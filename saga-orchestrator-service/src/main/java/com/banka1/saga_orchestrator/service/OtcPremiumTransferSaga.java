@@ -1,12 +1,14 @@
 package com.banka1.saga_orchestrator.service;
 
 import com.banka1.saga_orchestrator.client.BankingCoreClient;
+import com.banka1.saga_orchestrator.client.MarketServiceClient;
 import com.banka1.saga_orchestrator.domain.SagaInstance;
 import com.banka1.saga_orchestrator.domain.SagaState;
 import com.banka1.saga_orchestrator.domain.SagaType;
 import com.banka1.saga_orchestrator.repository.SagaInstanceRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +36,8 @@ public class OtcPremiumTransferSaga {
 
     private final SagaInstanceRepository sagaRepo;
     private final BankingCoreClient banking;
+    private final MarketServiceClient market;
+    private final RabbitTemplate rabbitTemplate;
 
     @Transactional
     public void run(Map<String, Object> event) {
@@ -51,13 +55,22 @@ public class OtcPremiumTransferSaga {
 
         Long buyerId = ((Number) event.get("buyerId")).longValue();
         Long sellerId = ((Number) event.get("sellerId")).longValue();
-        BigDecimal premium = new BigDecimal(String.valueOf(event.get("premium")));
+        BigDecimal premiumUsd = new BigDecimal(String.valueOf(event.get("premium")));
+        // Default account is always RSD; premium is negotiated in USD — convert before transfer.
+        String premiumCurrency = event.get("premiumCurrency") != null
+                ? String.valueOf(event.get("premiumCurrency")) : "USD";
 
         try {
             saga.setCurrentStep(1);
             String buyerAccount = banking.resolveDefaultAccountNumber(buyerId);
             String sellerAccount = banking.resolveDefaultAccountNumber(sellerId);
-            BankingCoreClient.TransferResult result = banking.internalTransfer(buyerAccount, sellerAccount, premium, correlationId);
+
+            BigDecimal transferAmount = "RSD".equalsIgnoreCase(premiumCurrency)
+                    ? premiumUsd
+                    : market.convertCurrencyNoCommission(premiumUsd, premiumCurrency, "RSD");
+            log.info("OTC premium: {} {} -> {} RSD (contractId={})", premiumUsd, premiumCurrency, transferAmount, correlationId);
+
+            BankingCoreClient.TransferResult result = banking.internalTransfer(buyerAccount, sellerAccount, transferAmount, correlationId);
 
             Map<String, Object> compensationLog = new LinkedHashMap<>();
             compensationLog.put("step1_transferId", result.transferId());
@@ -65,6 +78,8 @@ public class OtcPremiumTransferSaga {
             saga.setState(SagaState.COMPLETED);
             sagaRepo.save(saga);
             log.info("OTC_PREMIUM_TRANSFER saga {} OK (transfer {})", correlationId, result.transferId());
+            rabbitTemplate.convertAndSend("saga.events", "otc.premium.transfer.completed",
+                    Map.of("contractId", Long.parseLong(correlationId)));
         } catch (Exception ex) {
             log.error("OTC_PREMIUM_TRANSFER saga {} FAILED: {}", correlationId, ex.toString());
             Map<String, Object> failureLog = new LinkedHashMap<>();

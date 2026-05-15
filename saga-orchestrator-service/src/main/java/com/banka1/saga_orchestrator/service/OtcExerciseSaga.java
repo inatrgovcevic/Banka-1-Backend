@@ -2,6 +2,7 @@ package com.banka1.saga_orchestrator.service;
 
 import com.banka1.saga_orchestrator.client.BankingCoreClient;
 import com.banka1.saga_orchestrator.client.MarketServiceClient;
+import com.banka1.saga_orchestrator.client.TradingServiceClient;
 import com.banka1.saga_orchestrator.domain.SagaInstance;
 import com.banka1.saga_orchestrator.domain.SagaState;
 import com.banka1.saga_orchestrator.domain.SagaType;
@@ -9,6 +10,7 @@ import com.banka1.saga_orchestrator.repository.SagaInstanceRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,7 +47,9 @@ public class OtcExerciseSaga {
     private final SagaInstanceRepository sagaRepo;
     private final BankingCoreClient banking;
     private final MarketServiceClient market;
+    private final TradingServiceClient trading;
     private final ObjectMapper objectMapper;
+    private final RabbitTemplate rabbitTemplate;
 
     @SuppressWarnings("unchecked")
     @Transactional
@@ -78,29 +82,48 @@ public class OtcExerciseSaga {
             compensationLog.putAll((Map<String, Object>) existingLog);
         }
 
+        // pricePerStock je u USD; default racuni su RSD — konvertuj jednom i koristi isti iznos svuda.
+        BigDecimal totalCostRsd = market.convertCurrencyNoCommission(totalCost, "USD", "RSD");
+        log.info("OTC_EXERCISE saga {} totalCost {} USD = {} RSD", correlationId, totalCost, totalCostRsd);
+
         try {
+            // Step 1: Rezervacija sredstava na racunu Kupca.
+            // reserveFunds odmah debituje kupca i biljezi rezervaciju (HELD).
+            // Svrha: pre-check da kupac ima sredstva pre nego sto rezervisemo hartije.
+            // Rollback: releaseFunds kredituje kupca nazad (HELD -> RELEASED).
             saga.setCurrentStep(1);
-            BankingCoreClient.ReservationResult reservation = banking.reserveFunds(buyerId, totalCost, correlationId);
-            compensationLog.put("step1_fundsReservationId", reservation.reservationId());
-            log.info("OTC_EXERCISE saga {} step 1 OK ({})", correlationId, reservation.reservationId());
+            BankingCoreClient.ReservationResult reservation = banking.reserveFunds(buyerId, totalCostRsd, correlationId);
+            compensationLog.put("step1_reservationId", reservation.reservationId());
+            log.info("OTC_EXERCISE saga {} step 1 OK (reservation: {})", correlationId, reservation.reservationId());
 
+            // Step 2: Provera i rezervacija hartija u posedstvu Prodavca.
+            // Rollback: releaseStocks oslobadja rezervaciju.
             saga.setCurrentStep(2);
-            MarketServiceClient.StockReservationResult stockRes = market.reserveStocks(sellerId, stockTicker, amount, correlationId);
+            TradingServiceClient.StockReservationResult stockRes = trading.reserveStocks(sellerId, stockTicker, amount, correlationId);
             compensationLog.put("step2_stocksReservationId", stockRes.reservationId());
-            log.info("OTC_EXERCISE saga {} step 2 OK ({})", correlationId, stockRes.reservationId());
+            log.info("OTC_EXERCISE saga {} step 2 OK (stocks: {})", correlationId, stockRes.reservationId());
 
+            // Step 3: Transfer sredstava sa Kupca na Prodavca.
+            // Kupac je VEC debitovan u step 1 — prvo oslobodimo rezervaciju (kredit kupcu),
+            // pa tek onda radimo pravi transfer (debit kupca + kredit prodavcu).
+            // Neto efekat: kupac placa tacno jednom, prodavac prima sredstva.
+            // Rollback: reverseTransfer vraca sredstva kupcu; releaseFunds za step1 je no-op.
             saga.setCurrentStep(3);
+            banking.releaseFunds(reservation.reservationId(), correlationId);
             String buyerAccount = banking.resolveDefaultAccountNumber(buyerId);
             String sellerAccount = banking.resolveDefaultAccountNumber(sellerId);
-            BankingCoreClient.TransferResult transfer = banking.internalTransfer(buyerAccount, sellerAccount, totalCost, correlationId);
+            BankingCoreClient.TransferResult transfer = banking.internalTransfer(buyerAccount, sellerAccount, totalCostRsd, correlationId);
             compensationLog.put("step3_transferId", transfer.transferId());
-            log.info("OTC_EXERCISE saga {} step 3 OK ({})", correlationId, transfer.transferId());
+            log.info("OTC_EXERCISE saga {} step 3 OK (transfer {} RSD, id: {})", correlationId, totalCostRsd, transfer.transferId());
 
+            // Step 4: Transfer vlasnistva nad hartijama na Kupca.
+            // Rollback: reverseOwnership vraca hartije prodavcu.
             saga.setCurrentStep(4);
-            MarketServiceClient.OwnershipTransferResult ownership = market.transferOwnership(stockRes.reservationId(), buyerId, correlationId);
+            TradingServiceClient.OwnershipTransferResult ownership = trading.transferOwnership(stockRes.reservationId(), buyerId, correlationId);
             compensationLog.put("step4_ownershipTransferId", ownership.ownershipTransferId());
-            log.info("OTC_EXERCISE saga {} step 4 OK ({})", correlationId, ownership.ownershipTransferId());
+            log.info("OTC_EXERCISE saga {} step 4 OK (ownership: {})", correlationId, ownership.ownershipTransferId());
 
+            // Step 5: Azuriranje stanja — double check.
             saga.setCurrentStep(5);
             if (compensationLog.size() != 4) {
                 throw new IllegalStateException("Step 5 inconsistency check failed; compensation log keys=" + compensationLog.keySet());
@@ -110,6 +133,8 @@ public class OtcExerciseSaga {
             saga.setState(SagaState.COMPLETED);
             saga.setCompensationLog(compensationLog);
             sagaRepo.save(saga);
+            rabbitTemplate.convertAndSend("saga.events", "otc.exercise.completed",
+                    Map.of("contractId", Long.parseLong(correlationId)));
         } catch (Exception ex) {
             log.error("OTC_EXERCISE saga {} failed in step {}: {}", correlationId, saga.getCurrentStep(), ex.toString());
             saga.setCompensationLog(compensationLog);
@@ -126,9 +151,10 @@ public class OtcExerciseSaga {
         saga.setState(SagaState.COMPENSATING);
         sagaRepo.save(saga);
 
+        // Kompenzacija u obrnutom redosledu.
         if (compensationLog.containsKey("step4_ownershipTransferId")) {
             try {
-                market.reverseOwnership((String) compensationLog.get("step4_ownershipTransferId"), correlationId);
+                trading.reverseOwnership((String) compensationLog.get("step4_ownershipTransferId"), correlationId);
             } catch (Exception e) {
                 log.error("Compensation step 4 reverseOwnership FAILED for saga {}: {}", correlationId, e.toString());
             }
@@ -142,14 +168,16 @@ public class OtcExerciseSaga {
         }
         if (compensationLog.containsKey("step2_stocksReservationId")) {
             try {
-                market.releaseStocks((String) compensationLog.get("step2_stocksReservationId"), correlationId);
+                trading.releaseStocks((String) compensationLog.get("step2_stocksReservationId"), correlationId);
             } catch (Exception e) {
                 log.error("Compensation step 2 releaseStocks FAILED for saga {}: {}", correlationId, e.toString());
             }
         }
-        if (compensationLog.containsKey("step1_fundsReservationId")) {
+        // Step 1 kompenzacija: oslobadja rezervaciju ako je jos uvek HELD.
+        // Ako je rezervacija vec RELEASED (step 3 je prosao), ovo je no-op (idempotentno).
+        if (compensationLog.containsKey("step1_reservationId")) {
             try {
-                banking.releaseFunds((String) compensationLog.get("step1_fundsReservationId"), correlationId);
+                banking.releaseFunds((String) compensationLog.get("step1_reservationId"), correlationId);
             } catch (Exception e) {
                 log.error("Compensation step 1 releaseFunds FAILED for saga {}: {}", correlationId, e.toString());
             }

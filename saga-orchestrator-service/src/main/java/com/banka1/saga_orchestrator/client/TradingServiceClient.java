@@ -29,7 +29,7 @@ public class TradingServiceClient {
 
     private static final String CB_NAME = "trading-service";
 
-    @Value("${services.trading.url:http://trading-service:8086}")
+    @Value("${services.trading.url:http://trading-service:8088}")
     private String baseUrl;
 
     @Value("${services.trading.internal-token:}")
@@ -63,5 +63,67 @@ public class TradingServiceClient {
                 .block();
     }
 
+    /** OTC_EXERCISE Step 2: rezervacija akcija prodavca. */
+    @CircuitBreaker(name = CB_NAME)
+    @Retry(name = CB_NAME)
+    public StockReservationResult reserveStocks(Long sellerId, String stockTicker, int amount, String correlationId) {
+        log.info("[trading-service] reserveStocks seller={} ticker={} amount={} correlationId={}",
+                sellerId, stockTicker, amount, correlationId);
+        return webClient().post()
+                .uri("/stocks/internal/reserve")
+                .header("X-Correlation-Id", correlationId)
+                .bodyValue(Map.of("ownerId", sellerId, "stockTicker", stockTicker, "amount", amount))
+                .retrieve()
+                .bodyToMono(StockReservationResult.class)
+                .timeout(Duration.ofSeconds(5))
+                .block();
+    }
+
+    /** Kompenzacija Step 2: oslobadja rezervisane akcije. */
+    @CircuitBreaker(name = CB_NAME)
+    @Retry(name = CB_NAME)
+    public void releaseStocks(String reservationId, String correlationId) {
+        log.info("[trading-service] releaseStocks reservation={} correlationId={}", reservationId, correlationId);
+        webClient().delete()
+                .uri("/stocks/internal/reservations/{id}", reservationId)
+                .header("X-Correlation-Id", correlationId)
+                .retrieve()
+                .bodyToMono(Void.class)
+                .timeout(Duration.ofSeconds(5))
+                .block();
+    }
+
+    /** OTC_EXERCISE Step 4: transfer vlasnistva akcija na kupca. */
+    @CircuitBreaker(name = CB_NAME)
+    @Retry(name = CB_NAME)
+    public OwnershipTransferResult transferOwnership(String reservationId, Long buyerId, String correlationId) {
+        log.info("[trading-service] transferOwnership reservation={} buyer={} correlationId={}",
+                reservationId, buyerId, correlationId);
+        return webClient().post()
+                .uri("/stocks/internal/reservations/{id}/transfer", reservationId)
+                .header("X-Correlation-Id", correlationId)
+                .bodyValue(Map.of("buyerId", buyerId))
+                .retrieve()
+                .bodyToMono(OwnershipTransferResult.class)
+                .timeout(Duration.ofSeconds(10))
+                .block();
+    }
+
+    /** Kompenzacija Step 4: vraca vlasnistvo prodavcu. */
+    @CircuitBreaker(name = CB_NAME)
+    @Retry(name = CB_NAME)
+    public void reverseOwnership(String ownershipTransferId, String correlationId) {
+        log.info("[trading-service] reverseOwnership id={} correlationId={}", ownershipTransferId, correlationId);
+        webClient().post()
+                .uri("/stocks/internal/ownership-transfers/{id}/reverse", ownershipTransferId)
+                .header("X-Correlation-Id", correlationId)
+                .retrieve()
+                .bodyToMono(Void.class)
+                .timeout(Duration.ofSeconds(5))
+                .block();
+    }
+
     public record LiquidationResult(String liquidationId, BigDecimal liquidatedAmount, int holdingsSold) {}
+    public record StockReservationResult(String reservationId, String status) {}
+    public record OwnershipTransferResult(String ownershipTransferId, String status) {}
 }
