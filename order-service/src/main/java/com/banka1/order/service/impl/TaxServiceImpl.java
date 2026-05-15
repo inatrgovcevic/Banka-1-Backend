@@ -296,15 +296,7 @@ public class TaxServiceImpl implements TaxService {
         LocalDate firstDayOfMonth = now.withDayOfMonth(1);
         LocalDateTime monthStart = firstDayOfMonth.atStartOfDay();
         LocalDateTime tomorrowStart = now.plusDays(1).atStartOfDay();
-        BigDecimal totalTax = calculateTaxForRange(userId, monthStart, tomorrowStart)
-                .add(calculateOtcTaxForRange(userId, monthStart, tomorrowStart));
-        BigDecimal chargedThisMonth = taxChargeRepository.findByUserIdAndStatus(userId, TaxChargeStatus.CHARGED).stream()
-                .filter(c -> c.getChargedAt() != null
-                        && !c.getChargedAt().isBefore(monthStart)
-                        && c.getChargedAt().isBefore(tomorrowStart))
-                .map(c -> c.getTaxAmountRsd() != null ? c.getTaxAmountRsd() : c.getTaxAmount())
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        return totalTax.subtract(chargedThisMonth).max(BigDecimal.ZERO);
+        return calculateUnchargedTaxForRangeInRsd(userId, monthStart, tomorrowStart);
     }
 
     @Override
@@ -341,6 +333,39 @@ public class TaxServiceImpl implements TaxService {
                 .filter(entry -> !entry.exercisedAt().isBefore(start))
                 .map(this::calculateOtcTaxInRsd)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private BigDecimal calculateUnchargedTaxForRangeInRsd(Long userId, LocalDateTime start, LocalDateTime end) {
+        Set<TaxChargeKey> chargedKeys = new HashSet<>();
+        Set<Long> chargedOtcIds = new HashSet<>();
+        for (TaxCharge charge : taxChargeRepository.findAll()) {
+            if (charge.getStatus() != TaxChargeStatus.CHARGED) {
+                continue;
+            }
+            if (userId != null && !userId.equals(charge.getUserId())) {
+                continue;
+            }
+            chargedKeys.add(new TaxChargeKey(charge.getSellTransactionId(), charge.getBuyTransactionId()));
+            if (charge.getOtcContractId() != null) {
+                chargedOtcIds.add(charge.getOtcContractId());
+            }
+        }
+
+        Map<Long, String> currencyCache = new HashMap<>();
+        BigDecimal exchangeTax = buildTaxChargeEntries(start, end, userId).stream()
+                .filter(entry -> !chargedKeys.contains(new TaxChargeKey(entry.transactionId(), entry.buyTransactionId())))
+                .map(entry -> convertTaxEntryToRsd(entry, currencyCache))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal otcTax = loadExercisedOtcTaxEntries(end).stream()
+                .filter(entry -> userId == null || userId.equals(entry.sellerId()))
+                .filter(entry -> entry.exercisedAt() != null)
+                .filter(entry -> !entry.exercisedAt().isBefore(start))
+                .filter(entry -> !chargedOtcIds.contains(entry.contractId()))
+                .map(this::calculateOtcTaxInRsd)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return exchangeTax.add(otcTax);
     }
 
     private Map<Long, BigDecimal> calculateDebtMapInRsd(Long userIdFilter, LocalDateTime start, LocalDateTime end) {

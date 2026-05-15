@@ -1,6 +1,7 @@
 package com.banka1.account_service.service.implementation;
 
 import com.banka1.account_service.domain.Account;
+import com.banka1.account_service.domain.SystemAccountIds;
 import com.banka1.account_service.dto.request.BankPaymentDto;
 import com.banka1.account_service.dto.request.PaymentDto;
 import com.banka1.account_service.dto.response.UpdatedBalanceResponseDto;
@@ -101,6 +102,11 @@ public class TransactionalServiceImplementation implements TransactionalService 
                 credit(bankSender, commission);
             }
         } else {
+            if (to.getVlasnik().equals(SystemAccountIds.BANK)) {
+                debit(from, paymentDto.getFromAmount());
+                credit(to, paymentDto.getToAmount());
+                return new UpdatedBalanceResponseDto(from.getStanje(), to.getStanje());
+            }
             // Cross-currency: spec Celina 2 ("Primer 2") trazi rutiranje preko RSD bank racuna
             // sa proviziom na svakom koraku. Ovde imamo dva-leg model: from -> bankSender (ista
             // valuta) -> bankTarget (target valuta) -> to. Ako je jedan od bank racuna RSD,

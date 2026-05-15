@@ -115,6 +115,9 @@ public class OrderCreationServiceImpl implements OrderCreationService {
         BigDecimal approximatePrice = calculateApproximatePrice(orderType, OrderDirection.BUY, listing, request.getQuantity(),
                 request.getLimitValue(), request.getStopValue());
         BigDecimal fee = calculateFee(orderType, approximatePrice, listing.getCurrency());
+        if (user.isClient() && !Boolean.TRUE.equals(request.getMargin())) {
+            checkFunds(accountId, approximatePrice.add(fee), listing.getCurrency());
+        }
 
         Order order = buildBaseOrder(user.userId(), request.getListingId(), orderType, request.getQuantity(), listing,
                 request.getLimitValue(), request.getStopValue(), OrderDirection.BUY, request.getAllOrNone(),

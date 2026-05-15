@@ -146,6 +146,23 @@ class TransactionalServiceImplementationTest {
         assertThat(to.getStanje()).isEqualByComparingTo("501.85");
     }
 
+    @Test
+    void transferDifferentCurrenciesToBankCreditsTargetBankAccountDirectly() {
+        CheckingAccount from = account("111000110000000011", 1L, RSD, "1000", "1000", "0", "0");
+        FxAccount bankUsd = fxAccount("111000120000000099", -1L, EUR, "50000", "50000");
+        CheckingAccount bankRsd = account("111000110000000099", -1L, RSD, "50000", "50000", "0", "0");
+
+        PaymentDto dto = payment("111000110000000011", "111000120000000099", "697.37", "6.98", "0.05", 1L);
+
+        UpdatedBalanceResponseDto result = service.transfer(from, bankUsd, bankRsd, bankUsd, dto);
+
+        assertThat(from.getStanje()).isEqualByComparingTo("302.63");
+        assertThat(bankRsd.getStanje()).isEqualByComparingTo("50000");
+        assertThat(bankUsd.getStanje()).isEqualByComparingTo("50006.98");
+        assertThat(result.getSenderBalance()).isEqualByComparingTo("302.63");
+        assertThat(result.getReceiverBalance()).isEqualByComparingTo("50006.98");
+    }
+
     // ──────────────────── helpers ────────────────────
 
     /**

@@ -25,6 +25,7 @@ import com.banka1.order.entity.enums.TaxChargeStatus;
 import com.banka1.order.rabbitmq.OrderNotificationProducer;
 import com.banka1.order.repository.ActuaryInfoRepository;
 import com.banka1.order.repository.OrderRepository;
+import com.banka1.order.repository.PortfolioRepository;
 import com.banka1.order.repository.TaxChargeRepository;
 import com.banka1.order.repository.TransactionRepository;
 import com.banka1.order.service.impl.TaxServiceImpl;
@@ -90,6 +91,8 @@ class TaxServiceTest {
     private TaxChargeRepository taxChargeRepository;
     @Mock
     private ActuaryInfoRepository actuaryInfoRepository;
+    @Mock
+    private PortfolioRepository portfolioRepository;
     @Mock
     private JdbcTemplate jdbcTemplate;
 
@@ -508,6 +511,7 @@ class TaxServiceTest {
     @Test
     void getCurrentMonthUnpaidTax_shouldSumCurrentMonthTax() {
         sellTx.setTimestamp(LocalDate.now().atStartOfDay());
+        stockListing.setCurrency("RSD");
         lenient().when(orderRepository.findById(10L)).thenReturn(Optional.of(buyOrder));
         lenient().when(orderRepository.findById(11L)).thenReturn(Optional.of(sellOrder));
         when(stockClient.getListing(100L)).thenReturn(stockListing);
@@ -583,6 +587,7 @@ class TaxServiceTest {
         StockListingDto secondStock = new StockListingDto();
         secondStock.setId(200L);
         secondStock.setListingType(ListingType.STOCK);
+        secondStock.setCurrency("RSD");
 
         when(orderRepository.findByUserIdAndDirection(5L, OrderDirection.SELL)).thenReturn(List.of(currentMonthSellOrder));
         when(orderRepository.findByUserId(5L)).thenReturn(List.of(currentMonthSellOrder, olderBuyOrder));
