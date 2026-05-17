@@ -33,8 +33,10 @@ public class StockInfoController {
      * @param forwardedPrefix optional gateway prefix from the request header
      * @return bootstrap info response with the service status and main URL configurations
      */
+    // PR_19 C19.X: prefix /stocks/info kako bi se izbegao mapping conflict sa
+    // ExchangeInfoController#info() u konsolidovanom market-service JVM-u.
     @Operation(summary = "Get stock service info")
-    @GetMapping("/info")
+    @GetMapping("/stocks/info")
     public StockServiceInfoResponse info(
             @RequestHeader(value = "X-Forwarded-Prefix", required = false) String forwardedPrefix
     ) {
@@ -55,8 +57,10 @@ public class StockInfoController {
      *
      * @return exchange service response
      */
-    @Operation(summary = "Get exchange service info")
-    @GetMapping("/exchange/info")
+    // PR_19 C19.X: prefix /stocks/exchange/info — staro mapiranje /exchange/info se
+    // sad sluzi direktno iz ExchangeInfoController-a u istom JVM-u.
+    @Operation(summary = "Get exchange service info (forwarded)")
+    @GetMapping("/stocks/exchange/info")
     @PreAuthorize("hasAnyRole('CLIENT_BASIC', 'BASIC', 'AGENT', 'SUPERVISOR', 'ADMIN', 'SERVICE')")
     public ExchangeServiceInfoResponse exchangeInfo() {
         return exchangeServiceClient.getInfo();

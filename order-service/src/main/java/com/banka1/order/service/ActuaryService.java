@@ -1,11 +1,13 @@
 package com.banka1.order.service;
 
 import com.banka1.order.dto.ActuaryAgentDto;
+import com.banka1.order.dto.ActuaryProfitDto;
 import com.banka1.order.dto.SetLimitRequestDto;
 import com.banka1.order.dto.SetNeedApprovalRequestDto;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -65,4 +67,20 @@ public interface ActuaryService {
      * Called automatically by the scheduler at 23:59 every day.
      */
     void resetAllLimits();
+
+    /**
+     * PR_14 C14.9: vraca trading profit po aktuaru — sumu komisija sa izvrsenih
+     * transakcija u zadatom intervalu. {@code from} i {@code to} su opcioni;
+     * null = bez donje/gornje granice.
+     */
+    List<ActuaryProfitDto> profitByActuary(LocalDateTime from, LocalDateTime to);
+
+    /**
+     * PR_17 C17.6: agregira trading P&L na nivou banke — ukupna komisija
+     * preko svih aktuara i ukupan broj transakcija. Spec (Celina 4.txt — Profit Banke):
+     * banka zaradjuje od komisija na izvrsenim trgovinama; ovo je trading-side
+     * doprinos profitu. Fund-side (vrednost fondova - ulozeno) se sabira na frontend-u
+     * iz {@code GET /funds} endpoint-a.
+     */
+    com.banka1.order.dto.BankProfitSummaryDto bankProfitSummary(LocalDateTime from, LocalDateTime to);
 }

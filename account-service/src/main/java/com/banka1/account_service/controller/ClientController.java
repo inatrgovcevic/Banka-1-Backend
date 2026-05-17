@@ -21,7 +21,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/client")
+@RequestMapping("/accounts/client")
 @AllArgsConstructor
 @PreAuthorize("hasAnyRole('CLIENT_BASIC', 'AGENT')")
 /**

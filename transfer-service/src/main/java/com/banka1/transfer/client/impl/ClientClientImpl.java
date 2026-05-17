@@ -26,7 +26,7 @@ public class ClientClientImpl implements ClientClient {
     public ClientInfoResponseDto getClientDetails(Long clientId) {
         try {
             return clientRestClient.get()
-                    .uri("/customers/{id}", clientId)
+                    .uri("/clients/customers/{id}", clientId)
                     .retrieve()
                     .body(ClientInfoResponseDto.class);
         } catch (HttpClientErrorException.NotFound e) {

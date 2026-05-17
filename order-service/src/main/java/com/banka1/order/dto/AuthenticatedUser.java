@@ -38,24 +38,34 @@ public record AuthenticatedUser(Long userId, Set<String> roles, Set<String> perm
     }
 
     /**
+     * Set of permission codes koji daju pravo trgovine sa margin-om.
+     * Spec: Marzni_Racuni + Celina 3 — klijent dobija MARGIN_TRADE automatski po
+     * odobrenju kredita; aktuari moraju eksplicitno imati ovu permisiju.
+     */
+    private static final Set<String> MARGIN_PERMISSIONS = Set.of(
+            "MARGIN_TRADE", "SECURITIES_TRADE_MARGIN", "MARGIN");
+
+    /** Set permisija/rola koje daju pravo trgovine. */
+    private static final Set<String> TRADING_PERMISSIONS = Set.of(
+            "SECURITIES_TRADE", "SECURITIES_TRADE_LIMITED", "SECURITIES_TRADE_UNLIMITED",
+            "TRADING_BASIC", "TRADING_ADVANCED");
+
+    /**
      * Checks if the user has permission to use margin (borrowed funds).
-     *
-     * @return true if user has margin permission
+     * Egzaktno poredi protiv whitelist-a — krhak `contains("margin")` je propusta
+     * "VIEW_MARGIN_TRADES" ili sl. permisije koje ne treba da daju trade pravo.
      */
     public boolean hasMarginPermission() {
-        return permissions.stream().anyMatch(permission -> permission.toLowerCase().contains("margin"));
+        return permissions.stream().anyMatch(p -> MARGIN_PERMISSIONS.contains(p.toUpperCase()));
     }
 
     /**
      * Checks if the user has trading permissions.
-     *
      * Users with CLIENT_TRADING role or explicit trading permission can trade.
-     *
-     * @return true if user can place orders
      */
     public boolean hasTradingPermission() {
         return hasRole("CLIENT_TRADING")
-                || permissions.stream().anyMatch(permission -> permission.toLowerCase().contains("trading"));
+                || permissions.stream().anyMatch(p -> TRADING_PERMISSIONS.contains(p.toUpperCase()));
     }
 
     /**

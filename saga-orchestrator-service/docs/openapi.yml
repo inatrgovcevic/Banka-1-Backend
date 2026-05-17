@@ -1,0 +1,152 @@
+openapi: 3.0.3
+info:
+  title: Saga Orchestrator API
+  version: 0.0.1
+  description: |
+    Distributed transaction orchestration (SAGA pattern) for OTC trade exercise
+    and investment fund redemption flows. Admin/internal API only - external
+    traffic must come through api-gateway under /saga.
+servers:
+  - url: /
+    description: Same-origin via api-gateway
+  - url: http://localhost:8095
+    description: Direct (developer)
+
+paths:
+  /saga/health:
+    get:
+      tags: [Health]
+      summary: Liveness check
+      description: |
+        Domain-level liveness probe used by api-gateway. For infrastructure
+        health (DB, RabbitMQ) use Spring Actuator at /actuator/health.
+      responses:
+        '200':
+          description: Service is UP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /saga/instances:
+    get:
+      tags: [Saga]
+      summary: List saga instances (admin)
+      description: |
+        Returns paged list of SagaInstance entries for monitoring/debugging.
+        Implementation lands in Issue #214 (state machine + entity).
+      parameters:
+        - in: query
+          name: state
+          schema:
+            $ref: '#/components/schemas/SagaState'
+        - in: query
+          name: sagaType
+          schema:
+            $ref: '#/components/schemas/SagaType'
+      responses:
+        '200':
+          description: Paged list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SagaInstance'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /saga/instances/{id}:
+    get:
+      tags: [Saga]
+      summary: Detalj jedne SAGA instance
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: SAGA instance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SagaInstance'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  responses:
+    Unauthorized:
+      description: Missing or invalid auth
+    Forbidden:
+      description: Insufficient privileges (admin only)
+    NotFound:
+      description: SAGA instance does not exist
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, service]
+      properties:
+        status:
+          type: string
+          example: UP
+        service:
+          type: string
+          example: saga-orchestrator-service
+
+    SagaType:
+      type: string
+      enum:
+        - OTC_EXERCISE
+        - FUND_LIQUIDATION_FOR_REDEMPTION
+
+    SagaState:
+      type: string
+      enum:
+        - STARTED
+        - IN_PROGRESS
+        - COMPENSATING
+        - COMPLETED
+        - FAILED
+
+    SagaInstance:
+      type: object
+      required: [id, sagaType, currentStep, state, createdAt, updatedAt, retryCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sagaType:
+          $ref: '#/components/schemas/SagaType'
+        currentStep:
+          type: integer
+          format: int32
+          minimum: 0
+        state:
+          $ref: '#/components/schemas/SagaState'
+        payload:
+          type: object
+          additionalProperties: true
+          description: Original input payload (JSONB)
+        compensationLog:
+          type: array
+          description: List of completed steps to be compensated in reverse order
+          items:
+            type: object
+            additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        retryCount:
+          type: integer
+          format: int32
+          minimum: 0

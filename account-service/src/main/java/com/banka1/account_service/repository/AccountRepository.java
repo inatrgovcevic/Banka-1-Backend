@@ -3,6 +3,7 @@ package com.banka1.account_service.repository;
 import com.banka1.account_service.domain.Account;
 import com.banka1.account_service.domain.CheckingAccount;
 import com.banka1.account_service.domain.Currency;
+import com.banka1.account_service.domain.SystemAccountIds;
 import com.banka1.account_service.domain.enums.CardStatus;
 import com.banka1.account_service.domain.enums.CurrencyCode;
 import com.banka1.account_service.domain.enums.Status;
@@ -143,8 +144,13 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
     WHERE LOWER(a.brojRacuna) LIKE LOWER(CONCAT('%', COALESCE(:brojRacuna, ''), '%'))
     AND LOWER(a.imeVlasnikaRacuna) LIKE LOWER(CONCAT('%', COALESCE(:ime, ''), '%'))
     AND LOWER(a.prezimeVlasnikaRacuna) LIKE LOWER(CONCAT('%', COALESCE(:prezime, ''), '%'))
-    ORDER BY a.prezimeVlasnikaRacuna ASC, a.imeVlasnikaRacuna ASC
+    ORDER BY a.prezimeVlasnikaRacuna ASC, a.imeVlasnikaRacuna ASC, a.id ASC
 """)
+    /* PR_31 hotfix: dodato a.id ASC kao tie-breaker. Bez njega svi bankarski
+       racuni (prezime=ime=Banka) imaju isti ORDER BY kljuc → PostgreSQL vraca
+       ne-deterministicki redosled → LIMIT/OFFSET pagination duplira i preskace
+       redove (npr. AUD dva puta, USD nikad). a.id je primary key, garantuje
+       stabilan total order. */
     Page<Account> searchAccounts(
             @Param("brojRacuna") String brojRacuna,
             @Param("ime") String ime,
@@ -153,15 +159,32 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
     );
 
     /**
-     * Pronalazi sve bankovne (sistemske) račune sa ID vlasnika -1.
+     * Pronalazi sve racune sa zadatim ID-em vlasnika.
+     *
+     * <p>PR_29: Bazna metoda kojoj delegiraju {@code findAllBankAccounts()},
+     * {@code findBankAccountByCurrencyCode()} i {@code findStateAccountByCurrencyCode()}
+     * — umesto da svaka tri JPQL upita ima hardkodirano {@code -1} / {@code -2}.
+     */
+    @Query("SELECT a FROM Account a WHERE a.vlasnik = :vlasnik")
+    List<Account> findByVlasnik(@Param("vlasnik") Long vlasnik);
+
+    /**
+     * Pronalazi sve racune sa zadatim vlasnikom i valutom.
+     */
+    @Query("SELECT a FROM Account a WHERE a.vlasnik = :vlasnik AND a.currency.oznaka = :currencyCode")
+    Optional<Account> findByVlasnikAndCurrencyCode(@Param("vlasnik") Long vlasnik,
+                                                   @Param("currencyCode") CurrencyCode currencyCode);
+
+    /**
+     * Pronalazi sve bankovne (sistemske) račune.
      * <p>
      * Bankovni računi se koriste kao soborna sredstva za razne operacije
-     * (npr. prikupljanje gebrina, provizija).
-     *
-     * @return lista svih bankovnih računa
+     * (npr. prikupljanje gebrina, provizija). PR_29: konstanta {@link SystemAccountIds#BANK}
+     * umesto magic broja {@code -1}.
      */
-    @Query("SELECT a FROM Account a WHERE a.vlasnik = -1")
-    List<Account> findAllBankAccounts();
+    default List<Account> findAllBankAccounts() {
+        return findByVlasnik(SystemAccountIds.BANK);
+    }
 
     /**
      * Pronalazi bankovni račun za datim kodom valute.
@@ -169,20 +192,23 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
      * @param currencyCode kod valute (npr. RSD, EUR, USD)
      * @return {@code Optional} sa bankovnim računom u datoj valuti
      */
-    @Query("SELECT a FROM Account a WHERE a.vlasnik = -1 AND a.currency.oznaka = :currencyCode")
-    Optional<Account> findBankAccountByCurrencyCode(@Param("currencyCode") CurrencyCode currencyCode);
+    default Optional<Account> findBankAccountByCurrencyCode(CurrencyCode currencyCode) {
+        return findByVlasnikAndCurrencyCode(SystemAccountIds.BANK, currencyCode);
+    }
 
     /**
      * Pronalazi drzavni (State) racun za zadatom valutom.
      * <p>
-     * Drzava je modelovana kao firma sa vlasnikom {@code -2}, razlicitim od banke
-     * ({@code -1}) i redovnih klijenata (pozitivni ID-evi). Koristi se pri
-     * naplati poreza na kapitalnu dobit i pri namirenju opcionih ugovora
-     * (exercise), gde prenos treba da ide na drzavni racun, ne na racun banke.
+     * Drzava je modelovana kao firma (Celina 3 — "Naša država = Firma") sa vlasnikom
+     * {@link SystemAccountIds#STATE}, razlicitim od banke ({@link SystemAccountIds#BANK})
+     * i regularnih klijenata (pozitivni ID-evi). Koristi se pri naplati poreza na
+     * kapitalnu dobit i pri namirenju opcionih ugovora (exercise), gde prenos treba
+     * da ide na drzavni racun, ne na racun banke.
      *
      * @param currencyCode kod valute (u praksi samo RSD)
      * @return {@code Optional} sa drzavnim racunom u datoj valuti
      */
-    @Query("SELECT a FROM Account a WHERE a.vlasnik = -2 AND a.currency.oznaka = :currencyCode")
-    Optional<Account> findStateAccountByCurrencyCode(@Param("currencyCode") CurrencyCode currencyCode);
+    default Optional<Account> findStateAccountByCurrencyCode(CurrencyCode currencyCode) {
+        return findByVlasnikAndCurrencyCode(SystemAccountIds.STATE, currencyCode);
+    }
 }

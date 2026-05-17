@@ -1,5 +1,6 @@
 package com.banka1.credit_service.service.implementation;
 
+import com.banka1.credit_service.config.LoanInterestRateProperties;
 import com.banka1.credit_service.domain.Installment;
 import com.banka1.credit_service.domain.InterestRateStore;
 import com.banka1.credit_service.domain.Loan;
@@ -55,19 +56,33 @@ public class LoanServiceImplementation implements LoanService {
 
     private final ClientService clientService;
 
+    /** PR_29: Konfigurabilna pravila za izracunavanje kamatne stope. */
+    private final LoanInterestRateProperties interestRateProperties;
+
 
     @Value("${banka.security.id}")
     private String appPropertiesId;
     @Value("${banka.security.roles-claim}")
     private String roles;
 
-    private final double startRange=-1.5;
-    private final double endRange=1.5;
     private final Set<String> employeeRoles=new HashSet<>(Set.of("BASIC","AGENT","SUPERVISOR","ADMIN"));
-    private BigDecimal referenceRate=BigDecimal.valueOf(ThreadLocalRandom.current().nextDouble(startRange, endRange)).setScale(4, RoundingMode.HALF_UP);
+    private BigDecimal referenceRate;
 
-
-    BigDecimal[] iznosi={BigDecimal.valueOf(500_000), BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(2_000_000), BigDecimal.valueOf(5_000_000), BigDecimal.valueOf(10_000_000), BigDecimal.valueOf(20_000_000)};
+    @jakarta.annotation.PostConstruct
+    void initReferenceRate() {
+        // PR_29: ranije je ova vrednost bila inicijalizovana inline u field-u, sto znaci pre nego sto
+        // je @Value-injected interestRateProperties bio dostupan. Sada se inicijalizuje u
+        // @PostConstruct posle DI-ja, koristeci konfigurabilan opseg iz LoanInterestRateProperties.
+        double min = interestRateProperties.getReferenceRandomMin().doubleValue();
+        double max = interestRateProperties.getReferenceRandomMax().doubleValue();
+        if (min >= max) {
+            throw new IllegalStateException(
+                    "banka.loan.interest-rate.reference-random-min mora biti manje od -max (trenutno min="
+                            + min + ", max=" + max + ").");
+        }
+        this.referenceRate = BigDecimal.valueOf(ThreadLocalRandom.current().nextDouble(min, max))
+                .setScale(4, RoundingMode.HALF_UP);
+    }
 
     private InterestRateStore interestRate(BigDecimal amount, CurrencyCode currencyCode,LoanType loanType, InterestType interestType,Status status)
     {
@@ -80,30 +95,33 @@ public class LoanServiceImplementation implements LoanService {
                 throw new RuntimeException("Greska sa exchange servisom");
         }
 
-        int start=0;
-        int end=iznosi.length-1;
-        while(start<=end)
-        {
-            int mid=start + (end-start)/2;
-            int result=amount.compareTo(iznosi[mid]);
-            switch (result)
-            {
-                case 0 -> start=mid;
-                case -1-> end=mid-1;
-                case 1-> start=mid+1;
-            }
-            if(result==0)
-                break;
+        // PR_29: tier-binary-search nad konfigurabilnim listom umesto hardkodiranog niza.
+        List<BigDecimal> tiers = interestRateProperties.getAmountTiers();
+        int start = 0;
+        int end = tiers.size() - 1;
+        while (start <= end) {
+            int mid = start + (end - start) / 2;
+            int cmp = amount.compareTo(tiers.get(mid));
+            if (cmp == 0) { start = mid; break; }
+            if (cmp < 0) { end = mid - 1; }
+            else { start = mid + 1; }
         }
-        BigDecimal number=BigDecimal.valueOf(1200);
-        BigDecimal val=BigDecimal.valueOf(6.25).subtract(BigDecimal.valueOf(0.25).multiply(BigDecimal.valueOf(start))).add(loanType.getMarza());
-        if(status==Status.OVERDUE)
-            val=val.add(BigDecimal.valueOf(0.05));
-        InterestRateStore interestRateStore=new InterestRateStore(val.divide(number,10, RoundingMode.HALF_UP));
-        if(interestType==InterestType.VARIABLE) {
-            interestRateStore.setEffectiveInterestRate(val.add(getReferenceRate()).divide(number,10, RoundingMode.HALF_UP));
+        // 'start' sad pokazuje na index tier-a u koji iznos pripada (clamp na poslednji za ekstremne iznose).
+        if (start >= tiers.size()) start = tiers.size() - 1;
+
+        BigDecimal monthlyDivisor = interestRateProperties.getMonthlyDivisor();
+        BigDecimal annualPercent = interestRateProperties.getBaseAnnualRatePercent()
+                .subtract(interestRateProperties.getStepPerTierPercent().multiply(BigDecimal.valueOf(start)))
+                .add(loanType.getMarza());
+        if (status == Status.OVERDUE) {
+            annualPercent = annualPercent.add(interestRateProperties.getOverdueIncrementPercent());
         }
-        else {
+        InterestRateStore interestRateStore = new InterestRateStore(
+                annualPercent.divide(monthlyDivisor, 10, RoundingMode.HALF_UP));
+        if (interestType == InterestType.VARIABLE) {
+            interestRateStore.setEffectiveInterestRate(
+                    annualPercent.add(getReferenceRate()).divide(monthlyDivisor, 10, RoundingMode.HALF_UP));
+        } else {
             interestRateStore.setEffectiveInterestRate(interestRateStore.getNominalInterestRate());
         }
         return interestRateStore;
@@ -273,7 +291,10 @@ public class LoanServiceImplementation implements LoanService {
     @Scheduled(cron = "0 0 0 1 * *", zone = "Europe/Belgrade")
     public void generateReferenceRate()
     {
-        double random = ThreadLocalRandom.current().nextDouble(startRange, endRange);
+        // PR_29: koristimo konfigurabilan range iz LoanInterestRateProperties.
+        double min = interestRateProperties.getReferenceRandomMin().doubleValue();
+        double max = interestRateProperties.getReferenceRandomMax().doubleValue();
+        double random = ThreadLocalRandom.current().nextDouble(min, max);
         setReferenceRate(BigDecimal.valueOf(random).setScale(4, RoundingMode.HALF_UP));
     }
 

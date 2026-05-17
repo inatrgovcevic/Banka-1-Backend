@@ -152,7 +152,7 @@ class AccountControllerUnitTest {
     @Test
     void getStateAccountDetailsReturnsOkAndDelegates() {
         AccountController controller = new AccountController(accountService);
-        InternalAccountDetailsDto expected = new InternalAccountDetailsDto(9L, "1110002000000000011", -2L, "RSD", BigDecimal.ZERO, "ACTIVE", "PERSONAL", null, null);
+        InternalAccountDetailsDto expected = new InternalAccountDetailsDto(9L, "111000200000003012", -2L, "RSD", BigDecimal.ZERO, "ACTIVE", "PERSONAL", null, null);
         when(accountService.getStateAccountDetails(CurrencyCode.RSD)).thenReturn(expected);
 
         ResponseEntity<InternalAccountDetailsDto> response = controller.getStateAccountDetails(null, CurrencyCode.RSD);

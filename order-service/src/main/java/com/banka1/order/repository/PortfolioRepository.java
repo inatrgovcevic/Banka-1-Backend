@@ -38,4 +38,13 @@ public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Portfolio p where p.userId = :userId and p.listingId = :listingId")
     Optional<Portfolio> findByUserIdAndListingIdForUpdate(@Param("userId") Long userId, @Param("listingId") Long listingId);
+
+    /**
+     * Sve STOCK pozicije koje su trenutno objavljene za OTC trading.
+     * Koristi se za GET /internal/interbank/public-stocks (PR_32 Phase 12)
+     * agregaciju u {@code PublicStocksInternalController}.
+     */
+    @Query("select p from Portfolio p where p.listingType = com.banka1.order.entity.enums.ListingType.STOCK "
+            + "and p.isPublic = true and p.publicQuantity > 0")
+    List<Portfolio> findAllPublicStocks();
 }

@@ -28,8 +28,9 @@ public class ClientClientImpl implements ClientClient {
      */
     @Override
     public CustomerDto getCustomer(Long id) {
+        // PR_021: posle konsolidacije client kontroler je na /clients/customers prefiksu
         return clientRestClient.get()
-                .uri("/customers/{id}", id)
+                .uri("/clients/customers/{id}", id)
                 .retrieve()
                 .body(CustomerDto.class);
     }
@@ -38,7 +39,7 @@ public class ClientClientImpl implements ClientClient {
     public CustomerPageResponse searchCustomers(String ime, String prezime, int page, int size) {
         return clientRestClient.get()
                 .uri(uriBuilder -> uriBuilder
-                        .path("/customers")
+                        .path("/clients/customers")
                         .queryParamIfPresent("ime", Optional.ofNullable(ime))
                         .queryParamIfPresent("prezime", Optional.ofNullable(prezime))
                         .queryParam("page", page)

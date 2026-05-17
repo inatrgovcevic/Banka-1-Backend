@@ -11,6 +11,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -160,11 +161,15 @@ public class GlobalExceptionHandler {
     /**
      * Hendluje greske nedozvoljenog pristupa sa statusom 403 Forbidden.
      * Sprečava da @PreAuthorize odbijanja budu uhvacena generickim 500 handlerom.
+     * <p>
+     * Spring Security 5: {@code @Secured} / {@code @PreAuthorize} -> {@link AccessDeniedException}.
+     * Spring Security 6: {@code @PreAuthorize} -> {@link AuthorizationDeniedException}
+     * (potklasa {@link AccessDeniedException}).
      *
      * @param ex izuzetak nedozvoljenog pristupa
      * @return HTTP 403 Forbidden odgovor
      */
-    @ExceptionHandler(AccessDeniedException.class)
+    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class})
     public ResponseEntity<ErrorResponseDto> handleAccessDenied(AccessDeniedException ex) {
         ErrorResponseDto error = new ErrorResponseDto(
                 "ERR_FORBIDDEN",

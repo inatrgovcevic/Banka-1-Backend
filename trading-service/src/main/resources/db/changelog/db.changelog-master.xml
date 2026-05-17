@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        PR_19 C19.X: konsolidovani trading-service izvrsava merge legacy order
+        migracija + sopstvene OTC/Funds migracije u jednom DB-u (trading).
+    -->
+
+    <!-- Legacy order schema (kroz order-service jar). -->
+    <include file="db/changelog/db-changelog-order.xml"/>
+
+    <!-- Trading-service specific OTC + Funds schema. -->
+    <include file="db/changelog/trading-otc/001-create-otc-and-funds.sql"/>
+    <include file="db/changelog/trading-otc/002-fund-holdings.sql"/>
+
+    <!-- PR_32 Phase 17: DEV-ONLY rich seed za inter-bank testiranje.
+         Aktivira se kad je LIQUIBASE_CONTEXTS=dev (default u docker-compose.yml).
+         Sadrzi 18 portfolio redova spread po klijentima 1-7 i tickerima 1-8,
+         vecina javnih (`is_public=true, public_quantity > 0`) da `GET /public-stock`
+         vraca raznoliku listu za handshake testiranje. -->
+    <include file="db/changelog/trading-otc/003-dev-public-stock-seed.sql"/>
+    <include file="db/changelog/trading-otc/004-dev-mile-interbank-portfolio.sql"/>
+
+    <!-- PR_33 follow-up: INTRA-bank OTC offers seed (Mile u svim 4 uloge + jedan
+         ACCEPTED ugovor sa ACTIVE option_contract redom). DEV-only, context:dev. -->
+    <include file="db/changelog/trading-otc/005-dev-intra-bank-otc-seed.sql"/>
+
+    <!-- PR_33 follow-up: 2 sample investment funds + Mile pozicija + fund holdings.
+         Da Fund discovery + "Moji fondovi" ne budu prazni. DEV-only, context:dev. -->
+    <include file="db/changelog/trading-otc/006-dev-fund-seed.sql"/>
+
+    <!-- OTC_EXERCISE SAGA: stock_reservations + stock_ownership_transfers tabele. -->
+    <include file="db/changelog/trading-otc/007-stock-reservations.sql"/>
+
+    <!-- DEV-only consistency cleanup for investment fund fixtures. -->
+    <include file="db/changelog/trading-otc/008-fund-seed-consistency.sql"/>
+
+    <!-- DEV-only account-number length cleanup for fund settlement accounts. -->
+    <include file="db/changelog/trading-otc/009-fund-account-number-length.sql"/>
+
+    <!-- DEV-only normalized RSD-only multi-fund fixtures. -->
+    <include file="db/changelog/trading-otc/010-fund-seed-rsd-multi-funds.sql"/>
+
+</databaseChangeLog>

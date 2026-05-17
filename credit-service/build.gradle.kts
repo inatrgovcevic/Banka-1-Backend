@@ -27,8 +27,8 @@ repositories {
 }
 
 dependencies {
-	//implementation("com.library:company-observability-starter:0.0.1-SNAPSHOT")
-	implementation("com.banka1:security-lib:0.0.1-SNAPSHOT")
+	// PR_19 C19.X: project(...) umesto Maven coord-a (multi-module subproject deps).
+	implementation(project(":security-lib"))
 	implementation("com.fasterxml.jackson.core:jackson-core:2.21.1")
 	implementation("com.fasterxml.jackson.core:jackson-databind:2.21.1")
 	implementation("com.fasterxml.jackson.core:jackson-annotations:2.21")
@@ -45,13 +45,9 @@ dependencies {
 	compileOnly("org.projectlombok:lombok")
 	runtimeOnly("org.postgresql:postgresql")
 	annotationProcessor("org.projectlombok:lombok")
-	testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
-	testImplementation("org.springframework.boot:spring-boot-starter-amqp-test")
-	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
-	testImplementation("org.springframework.boot:spring-boot-starter-liquibase-test")
-	testImplementation("org.springframework.boot:spring-boot-starter-security-test")
+	// PR_16 C16.1: phantom test starter-i uklonjeni.
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
-	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+	testImplementation("org.springframework.security:spring-security-test")
 	testRuntimeOnly("com.h2database:h2")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

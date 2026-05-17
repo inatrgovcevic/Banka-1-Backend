@@ -4,15 +4,10 @@ FROM gradle:8.14.3-jdk21-alpine AS builder
 # Set working directory
 WORKDIR /app
 
-# Copy only the notification-service and any dependencies it needs
-COPY notification-service ./notification-service
-COPY company-observability-starter ./company-observability-starter
+# PR_19 C19.X: multi-module Gradle build.
+COPY . .
 
-# Move into the notification-service folder
-WORKDIR /app/notification-service
-
-# Build the project
-RUN gradle build --no-daemon -x test -x checkstyleMain -x checkstyleTest
+RUN gradle :notification-service:bootJar --no-daemon -x test
 
 # ===== Runtime Stage =====
 FROM eclipse-temurin:21-jre-alpine

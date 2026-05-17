@@ -8,15 +8,18 @@ import com.banka1.order.dto.AccountDetailsDto;
 import com.banka1.order.dto.BankAccountDto;
 import com.banka1.order.dto.ExchangeRateDto;
 import com.banka1.order.dto.StockListingDto;
+import com.banka1.order.dto.client.OneSidedTransactionDto;
 import com.banka1.order.dto.client.PaymentDto;
 import com.banka1.order.entity.ActuaryInfo;
 import com.banka1.order.entity.Order;
 import com.banka1.order.entity.Portfolio;
 import com.banka1.order.entity.Transaction;
+import com.banka1.order.client.TradingServiceClient;
 import com.banka1.order.entity.enums.ListingType;
 import com.banka1.order.entity.enums.OrderDirection;
 import com.banka1.order.entity.enums.OrderStatus;
 import com.banka1.order.entity.enums.OrderType;
+import com.banka1.order.entity.enums.PurchaseFor;
 import com.banka1.order.repository.ActuaryInfoRepository;
 import com.banka1.order.repository.OrderRepository;
 import com.banka1.order.repository.PortfolioRepository;
@@ -97,6 +100,7 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
     private final ActuaryInfoRepository actuaryInfoRepository;
     private final ObjectProvider<OrderExecutionService> selfProvider;
     private final TaskScheduler orderExecutionTaskScheduler;
+    private final TradingServiceClient tradingServiceClient;
 
     private static final long INITIAL_EXECUTION_DELAY_MILLIS = 60_000L;
 
@@ -175,8 +179,17 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
         BigDecimal commission = calculateCommission(orderPricingFamily(managedOrder.getOrderType()), grossChunkAmount, listing.getCurrency());
 
         createTransaction(managedOrder, quantityToExecute, executionPricePerUnit, grossChunkAmount, commission);
-        updatePortfolio(managedOrder, listing, quantityToExecute, executionPricePerUnit);
-        transferFunds(managedOrder, listing.getCurrency(), grossChunkAmount);
+        BigDecimal accountDebitAmount = transferFunds(managedOrder, listing.getCurrency(), grossChunkAmount);
+        if (managedOrder.getPurchaseFor() == PurchaseFor.INVESTMENT_FUND
+                && managedOrder.getDirection() == OrderDirection.BUY) {
+            notifyFundLiquidityDebit(managedOrder, accountDebitAmount, "Order execution trade leg");
+            notifyFundHolding(managedOrder, listing.getTicker(), quantityToExecute, executionPricePerUnit);
+        } else {
+            updatePortfolio(managedOrder, listing, quantityToExecute, executionPricePerUnit);
+        }
+        if (managedOrder.getDirection() == OrderDirection.SELL) {
+            transferSellCommission(managedOrder, listing.getCurrency(), commission);
+        }
         finalizeActuaryExposure(managedOrder, listing.getCurrency(), grossChunkAmount);
 
         managedOrder.setRemainingPortions(managedOrder.getRemainingPortions() - quantityToExecute);
@@ -347,19 +360,81 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
         }
     }
 
-    private void transferFunds(Order order, String currency, BigDecimal amount) {
-        BankAccountDto bankAccount = employeeClient.getBankAccount(currency);
-        boolean actuaryOrder = bankAccount.getAccountId() != null && bankAccount.getAccountId().equals(order.getAccountId());
+    /**
+     * Trade leg novca po PM direktivi iz GHI #199: <em>,,NE DAJE BANCI PARE,
+     * samo se skidaju sa racuna''</em>. Ranije se klijentski BUY zvao
+     * {@code accountClient.transaction(...)} sa korisnikom kao {@code from} i
+     * bankom kao {@code to}, sto je celokupan iznos kupovine kreditiralo banci.
+     * Nova implementacija koristi jednostrane endpointe
+     * {@code /internal/accounts/exchange/buy} (debit) i {@code .../exchange/sell}
+     * (credit) tako da bankin racun ne menja stanje za trade iznos. Provizija je
+     * zasebno bankarsko placanje: BUY na confirm-u, SELL posle gross proceeds-a.
+     */
+    private BigDecimal transferFunds(Order order, String currency, BigDecimal amount) {
+        AccountDetailsDto userAccount = accountClient.getAccountDetails(order.getAccountId());
+        BigDecimal accountAmount = order.getPurchaseFor() == PurchaseFor.BANK
+                ? convertTradeAmountToAccountCurrencyWithoutCommission(userAccount, currency, amount)
+                : convertTradeAmountToAccountCurrency(userAccount, currency, amount);
+        OneSidedTransactionDto request = new OneSidedTransactionDto(
+                userAccount.getAccountNumber(),
+                order.getAccountId(),
+                accountAmount,
+                userAccount.getOwnerId(),
+                "Order execution trade leg (one-sided, GHI #199)"
+        );
 
         if (order.getDirection() == OrderDirection.BUY) {
-            if (actuaryOrder) {
-                return;
-            }
-            transferForClient(order.getAccountId(), bankAccount.getAccountId(), amount, currency, "Order execution");
+            accountClient.exchangeBuy(request);
+        } else {
+            accountClient.exchangeSell(request);
+        }
+        return accountAmount;
+    }
+
+    private void transferSellCommission(Order order, String currency, BigDecimal commission) {
+        if (commission == null || commission.signum() <= 0) {
             return;
         }
 
-        transferWithoutConversionFee(bankAccount.getAccountId(), order.getAccountId(), amount, currency, "Order execution");
+        BankAccountDto bankAccount = employeeClient.getBankAccount(currency);
+        if (bankAccount.getAccountId() != null && bankAccount.getAccountId().equals(order.getAccountId())) {
+            return;
+        }
+
+        AccountDetailsDto userAccount = accountClient.getAccountDetails(order.getAccountId());
+        AccountDetailsDto bankDetails = accountClient.getAccountDetails(bankAccount.getAccountId());
+        BigDecimal fromAmount = convertTradeAmountToAccountCurrency(userAccount, currency, commission);
+        PaymentDto payment = new PaymentDto(
+                userAccount.getAccountNumber(),
+                bankDetails.getAccountNumber(),
+                fromAmount,
+                commission,
+                BigDecimal.ZERO,
+                userAccount.getOwnerId()
+        );
+        accountClient.transaction(payment);
+    }
+
+    /**
+     * Ako se valuta racuna razlikuje od valute hartije (cross-currency BUY/SELL),
+     * konvertujemo trade iznos u valutu racuna pre debit/credit operacije.
+     * Konverzija ide kroz exchange-service-ov {@code /exchange/calculate} i
+     * koristi prodajni kurs po Celini 5.
+     */
+    private BigDecimal convertTradeAmountToAccountCurrency(AccountDetailsDto userAccount, String tradeCurrency, BigDecimal tradeAmount) {
+        if (userAccount.getCurrency() == null || userAccount.getCurrency().equalsIgnoreCase(tradeCurrency)) {
+            return tradeAmount;
+        }
+        ExchangeRateDto conversion = exchangeClient.calculate(tradeCurrency, userAccount.getCurrency(), tradeAmount);
+        return conversion.getConvertedAmount() == null ? tradeAmount : conversion.getConvertedAmount();
+    }
+
+    private BigDecimal convertTradeAmountToAccountCurrencyWithoutCommission(AccountDetailsDto userAccount, String tradeCurrency, BigDecimal tradeAmount) {
+        if (userAccount.getCurrency() == null || userAccount.getCurrency().equalsIgnoreCase(tradeCurrency)) {
+            return tradeAmount;
+        }
+        ExchangeRateDto conversion = exchangeClient.calculateWithoutCommission(tradeCurrency, userAccount.getCurrency(), tradeAmount);
+        return conversion.getConvertedAmount() == null ? tradeAmount : conversion.getConvertedAmount();
     }
 
     private void finalizeActuaryExposure(Order order, String currency, BigDecimal amount) {
@@ -442,50 +517,29 @@ public class OrderExecutionServiceImpl implements OrderExecutionService {
         return conversion.getConvertedAmount() == null ? amount : conversion.getConvertedAmount();
     }
 
-    private void transferWithoutConversionFee(Long fromAccountId, Long toAccountId, BigDecimal amount, String currency, String description) {
-        if (fromAccountId != null && fromAccountId.equals(toAccountId)) {
-            throw new IllegalStateException("Transfer source and destination must differ");
-        }
-        AccountDetailsDto fromAccount = accountClient.getAccountDetails(fromAccountId);
-        AccountDetailsDto toAccount = accountClient.getAccountDetails(toAccountId);
-        PaymentDto payment = new PaymentDto(
-                fromAccount.getAccountNumber(),
-                toAccount.getAccountNumber(),
-                amount,
-                amount,
-                BigDecimal.ZERO,
-                orderOwnerId(fromAccount)
-        );
-        // Route by ownership: account-service /transaction rejects same-owner pairs and /transfer
-        // rejects different-owner pairs. Settlement legs that move funds between two bank-owned
-        // accounts (e.g. bank's funding account to bank's commission account) must therefore go
-        // through /transfer, while client-to-bank settlements continue to use /transaction.
-        Long fromOwner = fromAccount.getOwnerId();
-        Long toOwner = toAccount.getOwnerId();
-        if (fromOwner != null && fromOwner.equals(toOwner)) {
-            accountClient.transfer(payment);
+    private void notifyFundHolding(Order order, String ticker, int quantity, BigDecimal unitPrice) {
+        if (ticker == null) {
+            log.warn("Fund order {} has no ticker — cannot record holding in trading-service", order.getId());
             return;
         }
-        accountClient.transaction(payment);
+        try {
+            tradingServiceClient.addFundHolding(order.getFundId(), ticker, quantity, unitPrice);
+        } catch (Exception ex) {
+            log.error("Failed to record fund holding for order {} (fundId={} ticker={} qty={}): {}",
+                    order.getId(), order.getFundId(), ticker, quantity, ex.toString());
+        }
     }
 
-    private void transferForClient(Long fromAccountId, Long toAccountId, BigDecimal amount, String currency, String description) {
-        AccountDetailsDto fromAccount = accountClient.getAccountDetails(fromAccountId);
-        if (fromAccount.getCurrency() == null || fromAccount.getCurrency().equalsIgnoreCase(currency)) {
-            transferWithoutConversionFee(fromAccountId, toAccountId, amount, currency, description);
+    private void notifyFundLiquidityDebit(Order order, BigDecimal amount, String reason) {
+        if (order.getFundId() == null || amount == null || amount.signum() <= 0) {
             return;
         }
-
-        // Account currency differs from listing currency: convert the trade amount to the account's currency,
-        // then pay the bank account that matches the client's currency directly.
-        ExchangeRateDto conversion = exchangeClient.calculate(currency, fromAccount.getCurrency(), amount);
-        BigDecimal convertedAmount = conversion.getConvertedAmount() == null ? amount : conversion.getConvertedAmount();
-        BankAccountDto fromCurrencyBank = employeeClient.getBankAccount(fromAccount.getCurrency());
-        transferWithoutConversionFee(fromAccountId, fromCurrencyBank.getAccountId(), convertedAmount, fromAccount.getCurrency(), description);
-    }
-
-    private Long orderOwnerId(AccountDetailsDto account) {
-        return account.getOwnerId() == null ? 0L : account.getOwnerId();
+        try {
+            tradingServiceClient.debitFundLiquidity(order.getFundId(), amount, reason);
+        } catch (Exception ex) {
+            log.error("Failed to debit fund liquidity for order {} (fundId={} amount={}): {}",
+                    order.getId(), order.getFundId(), amount, ex.toString());
+        }
     }
 
     private int defaultInteger(Integer value) {

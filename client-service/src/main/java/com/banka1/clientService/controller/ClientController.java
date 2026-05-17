@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.*;
  * JMBG lookup endpoint je dostupan iskljucivo SERVICE tokenima.
  */
 @RestController
-@RequestMapping("/customers")
+@RequestMapping("/clients/customers")
 @AllArgsConstructor
 @Validated
 public class ClientController {

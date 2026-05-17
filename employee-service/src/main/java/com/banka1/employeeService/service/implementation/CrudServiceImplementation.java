@@ -29,6 +29,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.Period;
 import java.util.HashSet;
 import java.util.List;
@@ -86,6 +87,12 @@ public class CrudServiceImplementation implements CrudService {
     private String activateAccount;
 
     /**
+     * Trajanje aktivacionog (confirmation) tokena u minutima; po speci 15 minuta.
+     */
+    @Value("${token.confirmation.expiration-time}")
+    private Long confirmationTokenExpiration;
+
+    /**
      * Kreira novog zaposlenog i salje aktivacioni mejl nakon uspesnog commita transakcije.
      * Proverava jedinstvenost email-a i korisnickog imena, kao i punoletnost.
      *
@@ -98,6 +105,19 @@ public class CrudServiceImplementation implements CrudService {
         if (zaposlenRepository.existsByEmail(dto.getEmail()))
             throw new BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS, "Email: " + dto.getEmail());
 
+        if (dto.getUsername() == null || dto.getUsername().isBlank()) {
+            String fromEmail = dto.getEmail() != null ? dto.getEmail().split("@")[0] : null;
+            if (fromEmail == null || fromEmail.isBlank())
+                throw new BusinessException(ErrorCode.USERNAME_ALREADY_EXISTS, "Korisničko ime je obavezno");
+            String candidate = fromEmail;
+            int i = 1;
+            while (zaposlenRepository.existsByUsername(candidate)) {
+                candidate = fromEmail + i;
+                i++;
+            }
+            dto.setUsername(candidate);
+        }
+
         if (zaposlenRepository.existsByUsername(dto.getUsername()))
             throw new BusinessException(ErrorCode.USERNAME_ALREADY_EXISTS, "Username: " + dto.getUsername());
 
@@ -108,7 +128,11 @@ public class CrudServiceImplementation implements CrudService {
         Zaposlen savedEmployee = zaposlenRepository.save(zaposlen);
 
         String generated = jwtService.generateRandomToken();
-        ConfirmationToken confirmationToken = new ConfirmationToken(jwtService.sha256Hex(generated), savedEmployee);
+        // Celina 1, Scenario 9: aktivacioni token mora imati istek (default 15 minuta).
+        ConfirmationToken confirmationToken = new ConfirmationToken(
+                jwtService.sha256Hex(generated),
+                LocalDateTime.now().plusMinutes(confirmationTokenExpiration),
+                savedEmployee);
         confirmationTokenRepository.save(confirmationToken);
         savedEmployee.setConfirmationToken(confirmationToken);
 
@@ -176,7 +200,12 @@ public class CrudServiceImplementation implements CrudService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "ID: " + id));
 
         Role role1 = Role.valueOf((String) jwt.getClaims().get(role));
-        if (role1.getPower() <= zaposlen.getRole().getPower())
+        Long callerId = ((Number) jwt.getClaim("id")).longValue();
+        // Spec Celina 1, Sc 15: "Admin ne može menjati druge admine".
+        // Pravilo se primenjuje samo na ADMIN-ADMIN slucaj (admin smije sam sebe).
+        if (zaposlen.getRole() == Role.ADMIN && !zaposlen.getId().equals(callerId))
+            throw new BusinessException(ErrorCode.NOT_STRONG_ROLE, "Admin ne moze menjati druge admine");
+        if (role1.getPower() < zaposlen.getRole().getPower())
             throw new BusinessException(ErrorCode.NOT_STRONG_ROLE, "Slab si");
 
         List<String> list=jwt.getClaim(permission);

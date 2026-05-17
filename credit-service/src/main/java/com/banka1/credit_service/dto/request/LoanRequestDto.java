@@ -70,6 +70,6 @@ public class LoanRequestDto {
 
     /** The applicant's bank account number (cannot be blank). */
     @NotBlank(message = "accountNumber ne sme biti prazan")
-    @Pattern(regexp = "^\\d{19}$", message = "Broj racuna mora imati 19 cifara")
+    @Pattern(regexp = "^\\d{18,19}$", message = "Broj racuna mora imati 18 ili 19 cifara")
     private String accountNumber;
 }

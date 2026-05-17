@@ -6,6 +6,8 @@ import org.springframework.amqp.AmqpException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -89,6 +91,27 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Obradjuje odbijanja pristupa iz Spring Security-ja sa statusom 403 Forbidden.
+     * <p>
+     * Spring Security 5: {@code @Secured} / {@code @PreAuthorize} -> {@link AccessDeniedException}.
+     * Spring Security 6: {@code @PreAuthorize} -> {@link AuthorizationDeniedException}
+     * (potklasa {@link AccessDeniedException}). Eksplicitno hvatamo obe da ne bi propala kroz
+     * generic {@link Exception} handler i vratila 500.
+     *
+     * @param ex izuzetak nedozvoljenog pristupa
+     * @return HTTP 403 Forbidden odgovor
+     */
+    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class})
+    public ResponseEntity<ErrorResponseDto> handleAccessDenied(AccessDeniedException ex) {
+        ErrorResponseDto error = new ErrorResponseDto(
+                "ERR_FORBIDDEN",
+                "Pristup odbijen",
+                "Nemate dozvolu za ovu akciju."
+        );
+        return new ResponseEntity<>(error, HttpStatus.FORBIDDEN);
+    }
+
+    /**
      * Obradjuje neocekivane izuzetke i vraca genericki odgovor za internu gresku.
      *
      * @param ex neocekivani izuzetak
@@ -96,6 +119,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponseDto> handleUnexpectedException(Exception ex) {
+        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class).error("Unhandled exception in credit-service", ex);
         ErrorResponseDto error = new ErrorResponseDto(
                 "ERR_INTERNAL_SERVER",
                 "Serverska greška",
@@ -104,22 +128,32 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
-//    /**
-//     * Obradjuje poznate biznis izuzetke i mapira ih na odgovarajuci HTTP status.
-//     *
-//     * @param ex biznis izuzetak koji sadrzi domen-specifican kod greske
-//     * @return odgovor sa detaljima biznis greske i HTTP statusom iz {@link ErrorCode}
-//     */
-//    @ExceptionHandler(BusinessException.class)
-//    public ResponseEntity<ErrorResponseDto> handleBusinessException(BusinessException ex) {
-//        ErrorCode errorCode = ex.getErrorCode();
-//        ErrorResponseDto error = new ErrorResponseDto(
-//                errorCode.getCode(),
-//                errorCode.getTitle(),
-//                ex.getMessage()
-//        );
-//        return new ResponseEntity<>(error, errorCode.getHttpStatus());
-//    }
+    /**
+     * Obradjuje neispravne JSON payload-e (npr. nepoznata enum vrednost) sa 400 umesto 500.
+     */
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponseDto> handleNotReadable(org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        String detail = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        ErrorResponseDto error = new ErrorResponseDto(
+                "ERR_VALIDATION",
+                "Neispravni podaci",
+                detail
+        );
+        return new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
+    }
+
+    /**
+     * Vraca 405 Method Not Allowed umesto 500 kada metod nije podrzan.
+     */
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponseDto> handleMethodNotSupported(org.springframework.web.HttpRequestMethodNotSupportedException ex) {
+        ErrorResponseDto error = new ErrorResponseDto(
+                "ERR_METHOD_NOT_ALLOWED",
+                "Metod nije dozvoljen",
+                ex.getMessage()
+        );
+        return new ResponseEntity<>(error, HttpStatus.METHOD_NOT_ALLOWED);
+    }
 
     /**
      * Obradjuje greske validacije DTO zahteva i vraca listu neispravnih polja.

@@ -19,11 +19,11 @@ public class BankPaymentDto {
     /**
      * Broj računa na koji se novac prenosi (19 cifara).
      */
-    @Pattern(regexp = "^\\d{19}$", message = "Broj racuna mora imati 19 cifara")
+    @Pattern(regexp = "^\\d{18,19}$", message = "Broj racuna mora imati 18 ili 19 cifara")
     private String fromAccountNumber;
 
 
-    @Pattern(regexp = "^\\d{19}$", message = "Broj racuna mora imati 19 cifara")
+    @Pattern(regexp = "^\\d{18,19}$", message = "Broj racuna mora imati 18 ili 19 cifara")
     private String toAccountNumber;
 
 

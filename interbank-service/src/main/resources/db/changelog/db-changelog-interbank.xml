@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                       http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.27.xsd">
+
+    <!-- PR_32 Phase 1: init schema za interbank-service. -->
+    <include file="db/changelog/interbank/001-init-schema.sql" relativeToChangelogFile="false"/>
+    <include file="db/changelog/interbank/002-sequences.sql" relativeToChangelogFile="false"/>
+
+    <!-- PR_32 Phase 17: DEV-ONLY rich seed za inter-bank handshake testiranje.
+         Aktivira se kad je LIQUIBASE_CONTEXTS=dev. 4 sample pregovora razlicitih
+         stanja + 1 sklopljeni opcioni ugovor da Tim 2 moze da testira sve
+         GET/PUT/DELETE/accept scenarije protiv pre-postojecih ID-eva. -->
+    <include file="db/changelog/interbank/003-dev-negotiations-seed.sql" relativeToChangelogFile="false"/>
+
+    <!-- PR_33 follow-up bugfix: 003 postavlja is_authoritative=true ali Banka 2
+         je buyer (222) i per protokol §3.2 ona je authoritative. UPDATE fixuje. -->
+    <include file="db/changelog/interbank/004-fix-dev-negotiations-authoritative.sql" relativeToChangelogFile="false"/>
+
+</databaseChangeLog>

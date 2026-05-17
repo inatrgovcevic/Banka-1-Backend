@@ -26,7 +26,7 @@ import java.util.List;
  * Valute se koriste pri kreiranju deviznih racuna.
  */
 @RestController
-@RequestMapping("/api/currencies")
+@RequestMapping("/accounts/api/currencies")
 @AllArgsConstructor
 @PreAuthorize("hasAnyRole('CLIENT_BASIC','BASIC')")
 public class CurrencyController {

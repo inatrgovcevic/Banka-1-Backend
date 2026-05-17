@@ -7,6 +7,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -42,6 +45,14 @@ class GlobalExceptionHandlerTest {
 
         @GetMapping("/generic-error")
         public void throwGeneric() throws Exception { throw new Exception("Unexpected"); }
+
+        @GetMapping("/access-denied")
+        public void throwAccessDenied() { throw new AccessDeniedException("denied"); }
+
+        @GetMapping("/authorization-denied")
+        public void throwAuthorizationDenied() {
+            throw new AuthorizationDeniedException("denied", new AuthorizationDecision(false));
+        }
     }
 
     @Test
@@ -73,5 +84,27 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.errorCode").value("ERR_INTERNAL_SERVER"))
                 .andExpect(jsonPath("$.errorTitle").value("Serverska greška"));
+    }
+
+    /**
+     * Spring Security 5: @PreAuthorize denial -> AccessDeniedException.
+     * Handler must return 403 instead of falling through to the 500 catch-all.
+     */
+    @Test
+    void handleAccessDenied_ShouldReturnForbidden() throws Exception {
+        mockMvc.perform(get("/access-denied"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("ERR_FORBIDDEN"));
+    }
+
+    /**
+     * Spring Security 6: @PreAuthorize denial -> AuthorizationDeniedException
+     * (subclass of AccessDeniedException). Same handler must catch it.
+     */
+    @Test
+    void handleAuthorizationDenied_ShouldReturnForbidden() throws Exception {
+        mockMvc.perform(get("/authorization-denied"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("ERR_FORBIDDEN"));
     }
 }

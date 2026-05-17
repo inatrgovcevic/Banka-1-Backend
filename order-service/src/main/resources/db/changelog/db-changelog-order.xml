@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.17.xsd">
+
+    <include file="db/changelog/order/001-actuary-schema.sql"/>
+    <include file="db/changelog/order/002-order-schema.sql"/>
+    <include file="db/changelog/order/003-transaction-schema.sql"/>
+    <include file="db/changelog/order/004-portfolio-schema.sql"/>
+    <include file="db/changelog/order/005-tax-charge-schema.sql"/>
+    <include file="db/changelog/order/006-order-reservations.sql"/>
+    <include file="db/changelog/order/007-portfolio-reservations.sql"/>
+    <include file="db/changelog/order/008-interbank-stock-reservations.sql"/>
+    <include file="db/changelog/order/009-otc-tax-charge-contract-id.sql"/>
+    <include file="db/changelog/order/010-tax-charge-drop-fk.sql"/>
+    <include file="db/changelog/order/011-fund-order-columns.sql"/>
+</databaseChangeLog>

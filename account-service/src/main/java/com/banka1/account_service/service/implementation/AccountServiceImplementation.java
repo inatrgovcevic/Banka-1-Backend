@@ -2,11 +2,13 @@ package com.banka1.account_service.service.implementation;
 
 import com.banka1.account_service.domain.Account;
 import com.banka1.account_service.domain.Currency;
+import com.banka1.account_service.domain.SystemAccountIds;
 import com.banka1.account_service.domain.enums.CurrencyCode;
 import com.banka1.account_service.domain.enums.Status;
 import com.banka1.account_service.dto.request.BankPaymentDto;
 import com.banka1.account_service.dto.request.CreditDebitAccountDto;
 import com.banka1.account_service.dto.request.CreditDebitBankDto;
+import com.banka1.account_service.dto.request.OneSidedTransactionDto;
 import com.banka1.account_service.dto.request.PaymentDto;
 import com.banka1.account_service.dto.response.InfoResponseDto;
 import com.banka1.account_service.dto.response.InternalAccountDetailsDto;
@@ -17,12 +19,17 @@ import com.banka1.account_service.service.AccountService;
 import com.banka1.account_service.service.TransactionalService;
 import jakarta.persistence.OptimisticLockException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.NoSuchElementException;
+import java.util.UUID;
 
 /**
  * Implementacija servisa za izvrsavanje internih transakcija i transfera.
@@ -33,6 +40,7 @@ import java.util.NoSuchElementException;
  */
 @RequiredArgsConstructor
 @Service
+@Slf4j
 public class AccountServiceImplementation implements AccountService {
     /** Servis za atomične debitne/kreditne operacije. */
     private final TransactionalService transactionalService;
@@ -40,6 +48,8 @@ public class AccountServiceImplementation implements AccountService {
     private final AccountRepository accountRepository;
 
     private final CurrencyRepository currencyRepository;
+
+    private final JdbcTemplate jdbcTemplate;
 
     /**
      * Validira da račun postoji, ima ACTIVE status i nije istekao.
@@ -62,7 +72,8 @@ public class AccountServiceImplementation implements AccountService {
     /**
      * Pronalazi i validira banka-račun u tražnoj valuti.
      * <p>
-     * Banka-računi se identifikuju po vlasnikuID=-1L i valuti računa.
+     * Banka-računi se identifikuju po {@link SystemAccountIds#BANK} (vlasnikID=-1L)
+     * i valuti računa. PR_29: zamenjen magic broj {@code -1L} konstantom.
      *
      * @param to račun čija valuta se koristi za pronalaženje odgovarajućeg banka-računa
      * @return validiran Account banka-račun
@@ -70,7 +81,7 @@ public class AccountServiceImplementation implements AccountService {
      */
     private Account validateBank(Account to)
     {
-        Account account=accountRepository.findByVlasnikAndCurrency(-1L,to.getCurrency()).orElse(null);
+        Account account=accountRepository.findByVlasnikAndCurrency(SystemAccountIds.BANK,to.getCurrency()).orElse(null);
         if(account==null)
             throw new IllegalStateException("Greska u sistemu fali banka");
         if(account.getStatus()== Status.INACTIVE)
@@ -85,7 +96,7 @@ public class AccountServiceImplementation implements AccountService {
         Currency currency=currencyRepository.findByOznaka(currencyCode).orElse(null);
         if(currency==null)
             throw new IllegalArgumentException("Ne postoji ovaj currency "+currencyCode);
-        Account account=accountRepository.findByVlasnikAndCurrency(-1L,currency).orElse(null);
+        Account account=accountRepository.findByVlasnikAndCurrency(SystemAccountIds.BANK,currency).orElse(null);
         if(account==null)
             throw new IllegalStateException("Greska u sistemu fali banka");
         if(account.getStatus()== Status.INACTIVE)
@@ -211,7 +222,9 @@ public class AccountServiceImplementation implements AccountService {
             throw new IllegalArgumentException("Unesi id clienta");
         if(from.getVlasnik().equals(to.getVlasnik()))
             throw new IllegalArgumentException("Tranzakcija se ne moze odvijati za racune istog vlasnike");
-        return execute(paymentDto, from, to, bankSender, bankTarget);
+        UpdatedBalanceResponseDto result = execute(paymentDto, from, to, bankSender, bankTarget);
+        recordPayment(from, to, paymentDto.getFromAmount(), paymentDto.getToAmount(), paymentDto.getCommission(), "Payment");
+        return result;
     }
 
     @Override
@@ -251,7 +264,9 @@ public class AccountServiceImplementation implements AccountService {
             throw new IllegalArgumentException("Unesi id clienta");
         if(!from.getVlasnik().equals(to.getVlasnik()))
             throw new IllegalArgumentException("Transfer se moze odvijati samo za racune istog vlasnika");
-        return execute(paymentDto, from, to, bankSender, bankTarget);
+        UpdatedBalanceResponseDto result = execute(paymentDto, from, to, bankSender, bankTarget);
+        recordPayment(from, to, paymentDto.getFromAmount(), paymentDto.getToAmount(), paymentDto.getCommission(), "Transfer");
+        return result;
     }
 
     @Override
@@ -279,6 +294,94 @@ public class AccountServiceImplementation implements AccountService {
     }
 
     @Override
+    @Transactional
+    public UpdatedBalanceResponseDto exchangeBuy(OneSidedTransactionDto request) {
+        Account account = resolveAccountForOneSided(request);
+        if (request.getAmount() == null || request.getAmount().signum() <= 0) {
+            throw new IllegalArgumentException("Iznos mora biti pozitivan");
+        }
+        transactionalService.withdrawOneSided(account, request.getAmount());
+        recordPayment(account, validateBank(account), request.getAmount(), request.getAmount(), BigDecimal.ZERO, "Stock purchase");
+        return new UpdatedBalanceResponseDto(account.getRaspolozivoStanje(), null);
+    }
+
+    @Override
+    @Transactional
+    public UpdatedBalanceResponseDto exchangeSell(OneSidedTransactionDto request) {
+        Account account = resolveAccountForOneSided(request);
+        if (request.getAmount() == null || request.getAmount().signum() <= 0) {
+            throw new IllegalArgumentException("Iznos mora biti pozitivan");
+        }
+        transactionalService.depositOneSided(account, request.getAmount());
+        recordPayment(validateBank(account), account, request.getAmount(), request.getAmount(), BigDecimal.ZERO, "Stock sale");
+        return new UpdatedBalanceResponseDto(account.getRaspolozivoStanje(), null);
+    }
+
+    // Writes a payment_table record so the movement appears in the user-facing transaction list.
+    // Fail-safe: a write failure is logged but never propagated — the balance update has already
+    // committed in its own transaction and must not be rolled back or misclassified as a debit failure.
+    private void recordPayment(Account from, Account to, BigDecimal fromAmount, BigDecimal toAmount,
+                               BigDecimal commission, String purpose) {
+        try {
+            String fromCurrency = currencyCode(from);
+            String toCurrency = currencyCode(to);
+            String firstName = to.getImeVlasnikaRacuna() != null ? to.getImeVlasnikaRacuna() : "";
+            String lastName = to.getPrezimeVlasnikaRacuna() != null ? to.getPrezimeVlasnikaRacuna() : "";
+            String recipientName = (firstName + " " + lastName).trim();
+            if (recipientName.isEmpty()) {
+                recipientName = to.getBrojRacuna();
+            }
+            String orderNumber = UUID.randomUUID().toString();
+            jdbcTemplate.update(
+                    "INSERT INTO payment_table "
+                            + "(from_account_number, to_account_number, initial_amount, final_amount, commission, "
+                            + " sender_client_id, recipient_client_id, recipient_name, "
+                            + " payment_code, reference_number, payment_purpose, status, "
+                            + " from_currency, to_currency, order_number, created_at, updated_at, version) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, '289', ?, ?, 'COMPLETED', ?, ?, ?, NOW(), NOW(), 0)",
+                    from.getBrojRacuna(), to.getBrojRacuna(), fromAmount, toAmount,
+                    commission != null ? commission : BigDecimal.ZERO,
+                    from.getVlasnik(), to.getVlasnik(), recipientName,
+                    orderNumber, purpose,
+                    fromCurrency, toCurrency,
+                    orderNumber);
+        } catch (Exception ex) {
+            log.error("Failed to write payment_table record for movement from {} to {} amount={}: {}",
+                    from.getBrojRacuna(), to.getBrojRacuna(), fromAmount, ex.getMessage(), ex);
+        }
+    }
+
+    private String currencyCode(Account account) {
+        return account.getCurrency() != null && account.getCurrency().getOznaka() != null
+                ? account.getCurrency().getOznaka().name()
+                : "RSD";
+    }
+
+    /**
+     * Razresava racun iz {@link OneSidedTransactionDto}: prvo probaj po
+     * {@code accountNumber}, fallback na {@code accountId}. Validacija je ista
+     * kao u {@link #validate(String)}.
+     */
+    private Account resolveAccountForOneSided(OneSidedTransactionDto request) {
+        if (request == null) {
+            throw new IllegalArgumentException("Request ne sme biti null");
+        }
+        if (request.getAccountNumber() != null && !request.getAccountNumber().isBlank()) {
+            return validate(request.getAccountNumber());
+        }
+        if (request.getAccountId() != null) {
+            Account account = accountRepository.findById(request.getAccountId()).orElseThrow(
+                    () -> new IllegalArgumentException("Ne postoji racun za id:" + request.getAccountId()));
+            if (account.getStatus() == Status.INACTIVE)
+                throw new IllegalArgumentException("Racun je neaktivan:" + account.getBrojRacuna());
+            if (account.getDatumIsteka() != null && account.getDatumIsteka().isBefore(LocalDate.now()))
+                throw new IllegalArgumentException("Racun je istekao:" + account.getBrojRacuna());
+            return account;
+        }
+        throw new IllegalArgumentException("OneSidedTransactionDto mora imati accountNumber ili accountId");
+    }
+
+    @Override
     public InternalAccountDetailsDto getStateAccountDetails(CurrencyCode currencyCode) {
         Account account = accountRepository.findStateAccountByCurrencyCode(currencyCode).orElse(null);
         if (account == null)
@@ -300,5 +403,46 @@ public class AccountServiceImplementation implements AccountService {
             throw new IllegalArgumentException("ToAccount nije aktivan");
         return new InfoResponseDto(fromAccount.getCurrency().getOznaka(), toAccount.getCurrency().getOznaka(), fromAccount.getVlasnik(), toAccount.getVlasnik(),fromAccount.getEmail(),fromAccount.getUsername());
 
+    }
+
+    @Override
+    public InternalAccountDetailsDto createSystemAccount(com.banka1.account_service.dto.request.CreateSystemAccountDto dto) {
+        // Idempotentnost: ako sistem racun sa zadatim brojem vec postoji, vrati ga.
+        Account existing = accountRepository.findByBrojRacuna(dto.getAccountNumber()).orElse(null);
+        if (existing != null) {
+            return InternalAccountDetailsDto.from(existing);
+        }
+
+        Currency currency = currencyRepository.findByOznaka(dto.getCurrencyCode())
+                .orElseThrow(() -> new IllegalArgumentException("Valuta " + dto.getCurrencyCode() + " ne postoji."));
+
+        java.math.BigDecimal initialBalance = dto.getInitialBalance() != null
+                ? dto.getInitialBalance()
+                : java.math.BigDecimal.ZERO;
+
+        Account account;
+        if (dto.getAccountConcrete().getAccountOwnershipType() == com.banka1.account_service.domain.enums.AccountOwnershipType.PERSONAL) {
+            account = new com.banka1.account_service.domain.CheckingAccount(dto.getAccountConcrete());
+        } else {
+            // BUSINESS — koristi se za fond/sistemske racune (FONDACIJA, DOO, AD).
+            account = new com.banka1.account_service.domain.CheckingAccount(dto.getAccountConcrete());
+        }
+
+        account.setBrojRacuna(dto.getAccountNumber());
+        account.setNazivRacuna(dto.getDisplayName());
+        account.setVlasnik(dto.getOwnerId());
+        account.setZaposlen(-1L);
+        account.setImeVlasnikaRacuna("SYSTEM");
+        account.setPrezimeVlasnikaRacuna(dto.getDisplayName());
+        account.setUsername("system-" + dto.getOwnerId());
+        account.setEmail("system+" + dto.getOwnerId() + "@banka1.local");
+        account.setDatumIVremeKreiranja(java.time.LocalDateTime.now());
+        account.setCurrency(currency);
+        account.setStanje(initialBalance);
+        account.setRaspolozivoStanje(initialBalance);
+        account.setDatumIsteka(LocalDate.now().plusYears(50));  // efektivno bez isteka
+
+        Account saved = accountRepository.save(account);
+        return InternalAccountDetailsDto.from(saved);
     }
 }

@@ -63,6 +63,7 @@ public class CrudController {
      * @return stranica zaposlenih koji odgovaraju filterima
      */
     @GetMapping
+    @PreAuthorize("hasAnyRole('BASIC','ADMIN','SUPERVISOR','AGENT')")
     public ResponseEntity<Page<EmployeeResponseDto>> searchEmployees(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(required = false) String ime,
@@ -88,6 +89,7 @@ public class CrudController {
      * @return stranica rezultata globalne pretrage
      */
     @GetMapping("/search")
+    @PreAuthorize("hasAnyRole('BASIC','ADMIN','SUPERVISOR','AGENT')")
     public ResponseEntity<Page<EmployeeResponseDto>> globalSearchEmployees(
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(required = false) String query,
@@ -106,6 +108,7 @@ public class CrudController {
      * @return zaposleni
      */
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('BASIC','ADMIN','SUPERVISOR','AGENT','SERVICE')")
     public ResponseEntity<EmployeeResponseDto> getEmployee(@PathVariable Long id) {
         return ResponseEntity.ok(crudService.getEmployee(id));
     }

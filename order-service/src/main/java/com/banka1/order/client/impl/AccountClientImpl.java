@@ -3,6 +3,7 @@ package com.banka1.order.client.impl;
 import com.banka1.order.client.AccountClient;
 import com.banka1.order.dto.AccountDetailsDto;
 import com.banka1.order.dto.AccountTransactionRequest;
+import com.banka1.order.dto.client.OneSidedTransactionDto;
 import com.banka1.order.dto.client.PaymentDto;
 import com.banka1.order.dto.response.UpdatedBalanceResponseDto;
 import lombok.RequiredArgsConstructor;
@@ -89,6 +90,38 @@ public class AccountClientImpl implements AccountClient {
     @Override
     public UpdatedBalanceResponseDto transaction(PaymentDto payment) {
         return postTransaction(payment).body(UpdatedBalanceResponseDto.class);
+    }
+
+    @Override
+    public String getDefaultRsdAccountNumberForOwner(Long ownerId) {
+        try {
+            var response = accountRestClient.get()
+                    .uri("/accounts/internal/default/{ownerId}", ownerId)
+                    .retrieve()
+                    .body(java.util.Map.class);
+            return response != null ? (String) response.get("accountNumber") : null;
+        } catch (Exception ex) {
+            log.warn("Could not resolve default RSD account for owner {}: {}", ownerId, ex.getMessage());
+            return null;
+        }
+    }
+
+    @Override
+    public UpdatedBalanceResponseDto exchangeBuy(OneSidedTransactionDto request) {
+        return accountRestClient.post()
+                .uri("/internal/accounts/exchange/buy")
+                .body(request)
+                .retrieve()
+                .body(UpdatedBalanceResponseDto.class);
+    }
+
+    @Override
+    public UpdatedBalanceResponseDto exchangeSell(OneSidedTransactionDto request) {
+        return accountRestClient.post()
+                .uri("/internal/accounts/exchange/sell")
+                .body(request)
+                .retrieve()
+                .body(UpdatedBalanceResponseDto.class);
     }
 
     private RestClient.ResponseSpec postTransaction(Object payload) {

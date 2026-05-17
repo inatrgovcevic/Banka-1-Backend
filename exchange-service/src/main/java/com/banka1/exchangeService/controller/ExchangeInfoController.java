@@ -20,7 +20,9 @@ public class ExchangeInfoController {
      *                        defaults to /api/exchange if not present
      * @return map containing service name, status, and gateway prefix information
      */
-    @GetMapping("/info")
+    // PR_19 C19.X: prefix /exchange/info da bi se izbegao mapping conflict sa
+    // StockInfoController-om u konsolidovanom market-service JVM-u.
+    @GetMapping("/exchange/info")
     public Map<String, Object> info(@RequestHeader(value = "X-Forwarded-Prefix", required = false) String forwardedPrefix) {
         return Map.of(
                 "service", "exchange-service",

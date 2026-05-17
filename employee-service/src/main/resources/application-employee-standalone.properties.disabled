@@ -1,0 +1,54 @@
+spring.application.name=employeeService
+server.port=${SERVER_PORT}
+# Note, dok ne dokerizujemo ovo moramo definisati fallback vrednosti kao ${VARIJABLA:zapravoVrednost}
+# Security
+jwt.secret=${JWT_SECRET}
+banka.security.issuer=banka1
+banka.security.id=id
+banka.security.roles-claim=roles
+#ms
+banka.security.expiration-time=3600000
+#days (PR_01 C1.7: smanjen sa 1 mesec)
+token.refresh.expiration-time=${TOKEN_REFRESH_EXPIRATION_DAYS:7}
+#minutes
+token.confirmation.expiration-time=15
+# Account lockout (Celina 1, Scenario 5)
+account.lockout.max-attempts=5
+account.lockout.duration-minutes=15
+banka.security.permissions-claim=permissions
+banka.security.permit-all=/auth/*,/v3/api-docs/**,/v3/api-docs.yaml,/swagger-ui/**,/swagger-ui.html,/actuator/health/liveness,/actuator/health/readiness,/actuator/info
+springdoc.api-docs.enabled=${SWAGGER_ENABLED:true}
+springdoc.swagger-ui.enabled=${SWAGGER_ENABLED:true}
+springdoc.swagger-ui.config-url=/employees/v3/api-docs/swagger-config
+springdoc.swagger-ui.url=/employees/v3/api-docs
+server.forward-headers-strategy=FRAMEWORK
+url.reset-password=${USER_RESET_PASSWORD_URL:http://localhost:3000/reset-password?token=}
+url.activate-account=${USER_ACTIVATE_ACCOUNT_URL:http://localhost:3000/activate?token=}
+management.endpoints.web.exposure.include=health,info,prometheus
+management.endpoint.health.probes.enabled=true
+management.tracing.sampling.probability=1.0
+management.otlp.tracing.endpoint=${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+management.otlp.metrics.export.enabled=true
+management.otlp.metrics.export.url=${MANAGEMENT_OTLP_METRICS_EXPORT_URL:http://localhost:4318/v1/metrics}
+spring.rabbitmq.host=${RABBITMQ_HOST}
+spring.rabbitmq.port=${RABBITMQ_PORT}
+spring.rabbitmq.username=${RABBITMQ_USERNAME}
+spring.rabbitmq.password=${RABBITMQ_PASSWORD}
+rabbitmq.queue=${NOTIFICATION_QUEUE}
+rabbitmq.exchange=${NOTIFICATION_EXCHANGE}
+rabbitmq.routing-key=${NOTIFICATION_ROUTING_KEY}
+# Database konekcija (dok ne dokerizujemo ovo moraju biti fallback vrednosti posle :)
+spring.datasource.url=jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}
+spring.datasource.username=${DB_USER}
+spring.datasource.password=${DB_PASSWORD}
+spring.datasource.driver-class-name=org.postgresql.Driver
+# Liquibase hendluje ddl operacije, hibernate samo validira i baca gresku ako se nesto ne uklapa
+spring.jpa.hibernate.ddl-auto=validate
+spring.jpa.show-sql=true
+# Liquibase
+spring.liquibase.enabled=true
+spring.liquibase.change-log=classpath:db/changelog/db-changelog-employee.xml
+# Liquibase contexts default to "dev" so admin123 + 19-employee seed runs locally and in CI.
+# Production deploy MUST set LIQUIBASE_CONTEXTS to a context that does NOT include "dev" (e.g. "prod")
+# so the dev-only seed changesets are skipped.
+spring.liquibase.contexts=${LIQUIBASE_CONTEXTS:dev}

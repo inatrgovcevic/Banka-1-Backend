@@ -15,8 +15,8 @@ import org.springframework.web.bind.annotation.*;
  * REST kontroler koji izlaze endpoint-e za autentifikaciju i upravljanje nalogom klijenata.
  * Svi endpoint-i su dostupni pod baznom putanjom {@code /auth}.
  */
-@RestController
-@RequestMapping("/auth")
+@RestController("clientAuthController")
+@RequestMapping("/clients/auth")
 @AllArgsConstructor
 public class AuthController {
 

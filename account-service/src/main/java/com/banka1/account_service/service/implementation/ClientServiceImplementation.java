@@ -39,7 +39,8 @@ public class ClientServiceImplementation implements ClientService {
     private String appPropertiesId;
 
     private final VerificationService verificationService;
-    @Value("${account.verification.skip:true}")
+    // Spec Celina 2: verifikacija (OTP) je obavezna; default je sad false (secure-by-default).
+    @Value("${account.verification.skip:false}")
     private boolean skipVerification;
     private final RabbitClient rabbitClient;
     private final RestClientService restClientService;
@@ -180,6 +181,12 @@ public class ClientServiceImplementation implements ClientService {
         Account account=accountRepository.findByBrojRacuna(accountNumber).orElse(null);
         if(account==null)
             throw new IllegalArgumentException("Ne postoji racun: " + accountNumber);
+        // Sistemski racuni (Banka 1 = vlasnik -1, Republika Srbija = -2) ne smeju da se deaktiviraju
+        // jer ih backend koristi za provizije, menjacnicu, naplatu poreza itd.
+        // (Celina 2.txt:74-78 — "Nasa Banka = Firma" sa po racun u svakoj valuti).
+        if (account.getVlasnik() != null && account.getVlasnik() < 0) {
+            throw new IllegalArgumentException("Sistemski racun banke se ne moze deaktivirati");
+        }
         account.setStatus(editStatus.getStatus());
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override

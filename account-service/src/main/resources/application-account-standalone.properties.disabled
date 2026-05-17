@@ -1,0 +1,65 @@
+spring.application.name=accountService
+server.port=${ACCOUNT_SERVER_PORT}
+# Note, dok ne dokerizujemo ovo moramo definisati fallback vrednosti kao ${VARIJABLA:zapravoVrednost}
+# Security
+banka.security.issuer=banka1
+banka.security.id=id
+banka.security.roles-claim=roles
+#ms
+banka.security.expiration-time=3600000
+#days (PR_01 C1.7: smanjen sa 1 mesec)
+token.refresh.expiration-time=${TOKEN_REFRESH_EXPIRATION_DAYS:7}
+#minutes
+token.confirmation.expiration-time=15
+banka.security.permissions-claim=permissions
+banka.security.permit-all=/auth/*,/v3/api-docs/**,/v3/api-docs.yaml,/swagger-ui/**,/swagger-ui.html,/actuator/health/liveness,/actuator/health/readiness,/actuator/info
+springdoc.api-docs.enabled=${SWAGGER_ENABLED:true}
+springdoc.swagger-ui.enabled=${SWAGGER_ENABLED:true}
+server.forward-headers-strategy=FRAMEWORK
+url.reset-password="http://localhost:4200/auth/reset-password?token="
+url.activate-account="http://localhost:4200/auth/activate-account?token="
+management.endpoints.web.exposure.include=health,info,prometheus
+management.endpoint.health.probes.enabled=true
+
+jwt.secret=${JWT_SECRET}
+my.random.seed=1
+
+#todo ubaciti u env
+services.user.url=${SERVICES_USER_URL}
+
+#todo dodati u env
+services.card.url=${SERVICES_CARD_URL:http://localhost:8085}
+#todo dodati u env
+services.verification.url=${SERVICES_VERIFICATION_URL}
+account.verification.skip=${SKIP_VERIFICATION:true}
+spring.rabbitmq.host=${RABBITMQ_HOST}
+spring.rabbitmq.port=${RABBITMQ_PORT}
+spring.rabbitmq.username=${RABBITMQ_USERNAME}
+spring.rabbitmq.password=${RABBITMQ_PASSWORD}
+rabbitmq.queue=${NOTIFICATION_QUEUE}
+rabbitmq.exchange=${NOTIFICATION_EXCHANGE}
+rabbitmq.routing-key=${NOTIFICATION_ROUTING_KEY}
+# Database konekcija (dok ne dokerizujemo ovo moraju biti fallback vrednosti posle :)
+spring.datasource.url=jdbc:postgresql://${ACCOUNT_DB_HOST}:${ACCOUNT_DB_PORT}/${ACCOUNT_DB_NAME}
+spring.datasource.username=${ACCOUNT_DB_USER}
+spring.datasource.password=${ACCOUNT_DB_PASSWORD}
+spring.datasource.driver-class-name=org.postgresql.Driver
+# Liquibase hendluje ddl operacije, hibernate samo validira i baca gresku ako se nesto ne uklapa
+spring.jpa.hibernate.ddl-auto=validate
+spring.jpa.show-sql=true
+# Liquibase
+spring.liquibase.enabled=true
+spring.liquibase.change-log=classpath:db/changelog/db-changelog-account.xml
+# Default "dev" context seeds 8 test client accounts + Subin accounts. Banka1 + Naša država seed-ovi
+# nemaju context oznaku, pa se izvršavaju i u produkciji jer su deo poslovnog ugovora.
+# Production deploy: set LIQUIBASE_CONTEXTS=prod (ili bilo koji string koji ne sadrži "dev").
+spring.liquibase.contexts=${LIQUIBASE_CONTEXTS:dev}
+#ovo otkomentarisati samo kada brises
+#spring.liquibase.drop-first=true
+logging.level.org.hibernate.SQL=DEBUG
+logging.level.org.hibernate.orm.jdbc.bind=TRACE
+logging.level.org.springframework.orm.jpa=DEBUG
+logging.level.org.hibernate=ERROR
+
+
+

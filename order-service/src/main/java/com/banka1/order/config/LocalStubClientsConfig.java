@@ -5,6 +5,7 @@ import com.banka1.order.client.ClientClient;
 import com.banka1.order.client.EmployeeClient;
 import com.banka1.order.client.ExchangeClient;
 import com.banka1.order.client.StockClient;
+import com.banka1.order.client.TradingServiceClient;
 import com.banka1.order.dto.AccountDetailsDto;
 import com.banka1.order.dto.AccountTransactionRequest;
 import com.banka1.order.dto.BankAccountDto;
@@ -16,9 +17,11 @@ import com.banka1.order.dto.ExchangeRateDto;
 import com.banka1.order.dto.ExchangeStatusDto;
 import com.banka1.order.dto.StockExchangeDto;
 import com.banka1.order.dto.StockListingDto;
+import com.banka1.order.dto.client.OneSidedTransactionDto;
 import com.banka1.order.dto.client.PaymentDto;
 import com.banka1.order.dto.response.UpdatedBalanceResponseDto;
 import com.banka1.order.entity.enums.ListingType;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -27,6 +30,7 @@ import java.math.BigDecimal;
 
 @Configuration
 @Profile("local")
+@Slf4j
 class LocalStubClientsConfig {
 
     @Bean
@@ -62,6 +66,21 @@ class LocalStubClientsConfig {
 
             @Override
             public UpdatedBalanceResponseDto transaction(PaymentDto payment) {
+                return null;
+            }
+
+            @Override
+            public String getDefaultRsdAccountNumberForOwner(Long ownerId) {
+                return "LOCAL-ACCOUNT";
+            }
+
+            @Override
+            public UpdatedBalanceResponseDto exchangeBuy(OneSidedTransactionDto request) {
+                return null;
+            }
+
+            @Override
+            public UpdatedBalanceResponseDto exchangeSell(OneSidedTransactionDto request) {
                 return null;
             }
 
@@ -202,6 +221,21 @@ class LocalStubClientsConfig {
                 dto.setListingType(ListingType.STOCK);
                 dto.setVolume(1_000_000L);
                 return dto;
+            }
+        };
+    }
+
+    @Bean
+    TradingServiceClient localTradingServiceClient() {
+        return new TradingServiceClient() {
+            @Override
+            public void addFundHolding(Long fundId, String ticker, int quantity, BigDecimal unitPrice) {
+                log.info("Local stub: addFundHolding fundId={} ticker={} qty={} price={}", fundId, ticker, quantity, unitPrice);
+            }
+
+            @Override
+            public void debitFundLiquidity(Long fundId, BigDecimal amount, String reason) {
+                log.info("Local stub: debitFundLiquidity fundId={} amount={} reason={}", fundId, amount, reason);
             }
         };
     }

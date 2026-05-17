@@ -7,11 +7,14 @@ import org.springframework.amqp.AmqpException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -87,6 +90,40 @@ public class GlobalExceptionHandler {
                 "Mejl nije poslat. Naš tim je obavešten."
         );
         return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    /**
+     * Obradjuje slucaj kada nijedna ruta ne odgovara zahtevanom URL-u.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponseDto> handleNoResourceFound(NoResourceFoundException ex) {
+        ErrorResponseDto error = new ErrorResponseDto(
+                "ERR_NOT_FOUND",
+                "Resurs nije pronađen",
+                ex.getResourcePath()
+        );
+        return new ResponseEntity<>(error, HttpStatus.NOT_FOUND);
+    }
+
+    /**
+     * Obradjuje odbijanja pristupa iz Spring Security-ja sa statusom 403 Forbidden.
+     * <p>
+     * Spring Security 5: {@code @Secured} / {@code @PreAuthorize} -> {@link AccessDeniedException}.
+     * Spring Security 6: {@code @PreAuthorize} -> {@link AuthorizationDeniedException}
+     * (potklasa {@link AccessDeniedException}). Eksplicitno hvatamo obe da ne bi propala kroz
+     * generic {@link Exception} handler i vratila 500.
+     *
+     * @param ex izuzetak nedozvoljenog pristupa
+     * @return HTTP 403 Forbidden odgovor
+     */
+    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class})
+    public ResponseEntity<ErrorResponseDto> handleAccessDenied(AccessDeniedException ex) {
+        ErrorResponseDto error = new ErrorResponseDto(
+                "ERR_FORBIDDEN",
+                "Pristup odbijen",
+                "Nemate dozvolu za ovu akciju."
+        );
+        return new ResponseEntity<>(error, HttpStatus.FORBIDDEN);
     }
 
     /**

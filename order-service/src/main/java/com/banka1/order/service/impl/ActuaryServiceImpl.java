@@ -2,6 +2,8 @@ package com.banka1.order.service.impl;
 
 import com.banka1.order.client.EmployeeClient;
 import com.banka1.order.dto.ActuaryAgentDto;
+import com.banka1.order.dto.ActuaryProfitDto;
+import com.banka1.order.dto.BankProfitSummaryDto;
 import com.banka1.order.dto.EmployeeDto;
 import com.banka1.order.dto.EmployeePageResponse;
 import com.banka1.order.dto.SetLimitRequestDto;
@@ -9,6 +11,8 @@ import com.banka1.order.dto.SetNeedApprovalRequestDto;
 import com.banka1.order.entity.ActuaryInfo;
 import com.banka1.order.exception.ResourceNotFoundException;
 import com.banka1.order.repository.ActuaryInfoRepository;
+import com.banka1.order.repository.TransactionRepository;
+import com.banka1.order.security.Role;
 import com.banka1.order.service.ActuaryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.HttpClientErrorException;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,6 +61,8 @@ public class ActuaryServiceImpl implements ActuaryService {
 
     private final ActuaryInfoRepository actuaryInfoRepository;
     private final EmployeeClient employeeClient;
+    /** PR_14 C14.9: za sumiranje komisija po aktuaru. */
+    private final TransactionRepository transactionRepository;
 
     /**
      * {@inheritDoc}
@@ -95,7 +102,7 @@ public class ActuaryServiceImpl implements ActuaryService {
             }
 
             page.getContent().stream()
-                    .filter(emp -> "AGENT".equals(emp.getRole()))
+                    .filter(emp -> Role.AGENT.matches(emp.getRole()))
                     .forEach(emp -> agentMap.computeIfAbsent(emp.getId(), id -> {
                         ActuaryInfo info = actuaryInfoRepository.findByEmployeeId(id)
                                 .orElseGet(() -> createDefaultActuaryInfo(id));
@@ -117,10 +124,10 @@ public class ActuaryServiceImpl implements ActuaryService {
     public void setLimit(Long employeeId, SetLimitRequestDto request) {
         EmployeeDto employee = fetchEmployeeOrNotFound(employeeId);
 
-        if ("ADMIN".equals(employee.getRole())) {
+        if (Role.ADMIN.matches(employee.getRole())) {
             throw new IllegalArgumentException("Cannot change the limit of an admin.");
         }
-        if (!"AGENT".equals(employee.getRole())) {
+        if (!Role.AGENT.matches(employee.getRole())) {
             throw new IllegalArgumentException("Limit can only be set for employees with the AGENT role.");
         }
 
@@ -146,10 +153,10 @@ public class ActuaryServiceImpl implements ActuaryService {
     public void resetLimit(Long employeeId) {
         EmployeeDto employee = fetchEmployeeOrNotFound(employeeId);
 
-        if ("ADMIN".equals(employee.getRole())) {
+        if (Role.ADMIN.matches(employee.getRole())) {
             throw new IllegalArgumentException("Cannot reset the limit of an admin.");
         }
-        if (!"AGENT".equals(employee.getRole())) {
+        if (!Role.AGENT.matches(employee.getRole())) {
             throw new IllegalArgumentException("Limit can only be reset for employees with the AGENT role.");
         }
 
@@ -169,10 +176,10 @@ public class ActuaryServiceImpl implements ActuaryService {
     public void setNeedApproval(Long employeeId, SetNeedApprovalRequestDto request) {
         EmployeeDto employee = fetchEmployeeOrNotFound(employeeId);
 
-        if ("ADMIN".equals(employee.getRole())) {
+        if (Role.ADMIN.matches(employee.getRole())) {
             throw new IllegalArgumentException("Cannot change the need-approval flag of an admin.");
         }
-        if (!"AGENT".equals(employee.getRole())) {
+        if (!Role.AGENT.matches(employee.getRole())) {
             throw new IllegalArgumentException("The need-approval flag can only be set for employees with the AGENT role.");
         }
 
@@ -240,5 +247,54 @@ public class ActuaryServiceImpl implements ActuaryService {
         dto.setUsedLimit(info.getUsedLimit());
         dto.setNeedApproval(info.getNeedApproval());
         return dto;
+    }
+
+    @Override
+    public List<ActuaryProfitDto> profitByActuary(LocalDateTime from, LocalDateTime to) {
+        // PR_021: Postgres ne moze da odredi tip parametra za "? is null" pattern u JPQL-u
+        // (PSQLException: could not determine data type of parameter $1). Substituiraj null
+        // sa sentinel-vrednostima koje obuhvataju ceo period.
+        LocalDateTime effectiveFrom = (from != null) ? from : LocalDateTime.of(1900, 1, 1, 0, 0);
+        LocalDateTime effectiveTo = (to != null) ? to : LocalDateTime.of(9999, 12, 31, 23, 59);
+        return transactionRepository.sumCommissionByActuary(effectiveFrom, effectiveTo).stream()
+                .map(row -> {
+                    ActuaryProfitDto.ActuaryProfitDtoBuilder b = ActuaryProfitDto.builder()
+                            .userId(row.getUserId())
+                            .totalCommission(row.getTotalCommission() != null ? row.getTotalCommission() : BigDecimal.ZERO)
+                            .transactionCount(row.getTransactionCount() != null ? row.getTransactionCount() : 0L);
+                    // PR_15 C15.7: enrich sa imenom employee-a; ako lookup pukne (npr. employee-service down)
+                    // toleriramo i ostavljamo polja null.
+                    try {
+                        EmployeeDto emp = employeeClient.getEmployee(row.getUserId());
+                        if (emp != null) {
+                            b.ime(emp.getIme()).prezime(emp.getPrezime()).pozicija(emp.getPozicija());
+                        }
+                    } catch (Exception ex) {
+                        log.debug("Profit enrichment skip za userId={}: {}", row.getUserId(), ex.toString());
+                    }
+                    return b.build();
+                })
+                .toList();
+    }
+
+    @Override
+    public BankProfitSummaryDto bankProfitSummary(LocalDateTime from, LocalDateTime to) {
+        List<ActuaryProfitDto> perActuary = profitByActuary(from, to);
+        BigDecimal totalCommission = perActuary.stream()
+                .map(ActuaryProfitDto::getTotalCommission)
+                .filter(c -> c != null)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        long totalTransactions = perActuary.stream()
+                .map(ActuaryProfitDto::getTransactionCount)
+                .filter(c -> c != null)
+                .mapToLong(Long::longValue)
+                .sum();
+        return BankProfitSummaryDto.builder()
+                .totalCommission(totalCommission)
+                .transactionCount(totalTransactions)
+                .distinctActuaries((long) perActuary.size())
+                .from(from)
+                .to(to)
+                .build();
     }
 }

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.25.xsd">
+
+    <include file="db/changelog/stock/001-baseline.sql"/>
+    <include file="db/changelog/stock/002-create-stock-exchange.sql"/>
+    <include file="db/changelog/stock/003-create-stock.sql"/>
+    <include file="db/changelog/stock/004-create-futures-contract.sql"/>
+    <include file="db/changelog/stock/005-create-forex-pair.sql"/>
+    <include file="db/changelog/stock/006-create-stock-option.sql"/>
+    <include file="db/changelog/stock/007-create-listing.sql"/>
+    <include file="db/changelog/stock/008-create-listing-daily-price-info.sql"/>
+    <include file="db/changelog/stock/009-update-listing-market-data.sql"/>
+    <include file="db/changelog/stock/010-widen-stock-exchange-currency.sql"/>
+    <include file="db/changelog/stock/011-add-stock-option-market-data.sql"/>
+    <include file="db/changelog/stock/012-dev-seed-listing-prices.sql"/>
+
+</databaseChangeLog>

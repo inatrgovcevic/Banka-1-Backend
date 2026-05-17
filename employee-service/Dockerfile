@@ -1,14 +1,9 @@
 FROM gradle:8.14.3-jdk21-alpine AS builder
 
 WORKDIR /app
+COPY . .
 
-COPY employee-service ./employee-service
-COPY security-lib ./security-lib
-COPY company-observability-starter ./company-observability-starter
-
-WORKDIR /app/employee-service
-
-RUN gradle build --no-daemon -x test -x checkstyleMain -x checkstyleTest
+RUN gradle :employee-service:bootJar --no-daemon -x test
 
 FROM eclipse-temurin:21-jre-alpine
 
@@ -18,7 +13,7 @@ WORKDIR /app
 
 COPY --from=builder /app/employee-service/build/libs/*.jar app.jar
 
-ARG SERVER_PORT=8081
+ARG SERVER_PORT=8082
 EXPOSE ${SERVER_PORT}
 
 ENTRYPOINT ["java","-jar","app.jar"]

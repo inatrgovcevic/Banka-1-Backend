@@ -44,6 +44,26 @@ public interface AccountService {
     void transactionFromBank(BankPaymentDto paymentDto);
 
     /**
+     * Jednostrana debit operacija za trade-leg klijentskog BUY-a (GHI #199).
+     * Bankin racun se NE dira - po PM direktivi
+     * <em>,,NE DAJE BANCI PARE, samo se skidaju sa racuna''</em>.
+     *
+     * @param request payload sa account identifikatorom + iznosom
+     * @return azurirano stanje racuna nakon debita
+     */
+    UpdatedBalanceResponseDto exchangeBuy(com.banka1.account_service.dto.request.OneSidedTransactionDto request);
+
+    /**
+     * Jednostrana credit operacija za trade-leg klijentskog SELL-a (GHI #199).
+     * Smer je obrnut od {@link #exchangeBuy}: korisniku se dodaju trade proceeds,
+     * dok bankin racun ostaje netaknut.
+     *
+     * @param request payload sa account identifikatorom + iznosom
+     * @return azurirano stanje racuna nakon credita
+     */
+    UpdatedBalanceResponseDto exchangeSell(com.banka1.account_service.dto.request.OneSidedTransactionDto request);
+
+    /**
      * Izvrsava transfer izmedju dva racuna istog vlasnika.
      * Razlikuje se od {@link #transaction} po tome sto proverava da oba racuna
      * pripadaju istom vlasniku.
@@ -99,4 +119,18 @@ public interface AccountService {
      * @return DTO sa detaljima drzavnog racuna
      */
     InternalAccountDetailsDto getStateAccountDetails(CurrencyCode currencyCode);
+
+    /**
+     * Kreira sistemski (company-owned) racun sa unapred zadatim brojem racuna.
+     * Koristi se kad trading-service kreira investicioni fond i potreban mu je
+     * pravi {@code Account} red kako bi SAGA invest/redeem mogli da skidaju i
+     * dodaju novac na racun fonda (PR_14 C14.8).
+     *
+     * <p>Razlikuje se od {@link #createCheckingAccount(Jwt, com.banka1.account_service.dto.request.CheckingDto)}
+     * po tome sto preskace lookup klijenta po JMBG-u i kreira "system" racun
+     * sa specijalnim {@code ownerId}-jem (npr. {@code -F<fundId>} dogovoreno).
+     *
+     * @return DTO sa detaljima novog racuna
+     */
+    InternalAccountDetailsDto createSystemAccount(com.banka1.account_service.dto.request.CreateSystemAccountDto dto);
 }

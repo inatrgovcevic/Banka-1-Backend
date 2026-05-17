@@ -4,7 +4,10 @@ import com.banka1.exchangeService.dto.ErrorResponseDto;
 import com.banka1.exchangeService.exception.BusinessException;
 import com.banka1.exchangeService.exception.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.BindException;
@@ -94,6 +97,48 @@ public class GlobalExceptionHandler {
      * @param ex unexpected exception
      * @return generic error response payload
      */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponseDto> handleNoResource(org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        return ResponseEntity.status(org.springframework.http.HttpStatus.NOT_FOUND)
+                .body(new ErrorResponseDto("ERR_NOT_FOUND", "Resurs nije pronadjen", ex.getResourcePath()));
+    }
+
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponseDto> handleTypeMismatch(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex) {
+        String requiredType = ex.getRequiredType() == null ? "" : ex.getRequiredType().getSimpleName();
+        String detail = "Invalid value '" + ex.getValue() + "' for parameter '" + ex.getName() + "'"
+                + (requiredType.isEmpty() ? "." : ", expected type: " + requiredType + ".");
+        return ResponseEntity.badRequest()
+                .body(new ErrorResponseDto("ERR_VALIDATION", "Neispravni argumenti", detail));
+    }
+
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponseDto> handleNotReadable(org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        String detail = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        return ResponseEntity.badRequest()
+                .body(new ErrorResponseDto("ERR_VALIDATION", "Neispravni podaci", detail));
+    }
+
+    /**
+     * Handles Spring Security access denial.
+     * <p>
+     * Spring Security 5: @Secured / @PreAuthorize -> AccessDeniedException.
+     * Spring Security 6: @PreAuthorize -> AuthorizationDeniedException (subclass of AccessDeniedException).
+     * Explicit handler prevents fall-through to the generic Exception catch-all (which would return 500).
+     *
+     * @param ex access denied exception
+     * @return HTTP 403 Forbidden response
+     */
+    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class})
+    public ResponseEntity<ErrorResponseDto> handleAccessDenied(AccessDeniedException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(new ErrorResponseDto(
+                        "ERR_FORBIDDEN",
+                        "Pristup odbijen",
+                        "Nemate dozvolu za ovu akciju."
+                ));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponseDto> handleUnexpectedException(Exception ex) {
         log.error("Unexpected error in exchange-service", ex);

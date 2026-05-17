@@ -10,6 +10,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -97,6 +99,19 @@ class GlobalExceptionHandlerUnitTest {
     @Test
     void handleAccessDeniedMapsForbidden() {
         ResponseEntity<ErrorResponseDto> response = handler.handleAccessDenied(new AccessDeniedException("denied"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody().getErrorCode()).isEqualTo("ERR_FORBIDDEN");
+    }
+
+    @Test
+    void handleAuthorizationDeniedMapsForbidden() {
+        // Spring Security 6 throws AuthorizationDeniedException (subclass of AccessDeniedException)
+        // when @PreAuthorize denies access. Same handler must catch both.
+        AuthorizationDeniedException ex = new AuthorizationDeniedException(
+                "denied", new AuthorizationDecision(false));
+
+        ResponseEntity<ErrorResponseDto> response = handler.handleAccessDenied(ex);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(response.getBody().getErrorCode()).isEqualTo("ERR_FORBIDDEN");

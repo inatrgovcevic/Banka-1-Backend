@@ -128,8 +128,11 @@ public class PortfolioServiceImpl implements PortfolioService {
             throw new BadRequestException("Public quantity cannot be negative");
         }
 
-        if (request.getPublicQuantity() > portfolio.getQuantity()) {
-            throw new BadRequestException("Public quantity cannot exceed total quantity");
+        int reserved = portfolio.getReservedQuantity() == null ? 0 : portfolio.getReservedQuantity();
+        int available = portfolio.getQuantity() - reserved;
+        if (request.getPublicQuantity() > available) {
+            throw new BadRequestException("Public quantity cannot exceed available quantity (owned: "
+                    + portfolio.getQuantity() + ", reserved: " + reserved + ", max: " + available + ")");
         }
 
         portfolio.setPublicQuantity(request.getPublicQuantity());
@@ -235,6 +238,9 @@ public class PortfolioServiceImpl implements PortfolioService {
 
         PortfolioResponse response = new PortfolioResponse();
 
+        // GHI #199: id i listingId su potrebni frontu za SELL navigation
+        response.setId(portfolio.getId());
+        response.setListingId(portfolio.getListingId());
         response.setListingType(portfolio.getListingType());
         response.setQuantity(portfolio.getQuantity());
         response.setPublicQuantity(portfolio.getPublicQuantity());

@@ -39,8 +39,8 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok'
     annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
 
+    // PR_16 C16.1: phantom starter-webmvc-test uklonjen.
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     testImplementation 'org.springframework.security:spring-security-test'
     testRuntimeOnly 'com.h2database:h2'
 }
@@ -69,3 +69,7 @@ tasks.named('jacocoTestReport') {
         html.required = true
     }
 }
+
+// PR_19 library mode
+bootJar { enabled = false }
+jar { enabled = true; archiveClassifier = '' }

@@ -29,6 +29,20 @@ import java.time.LocalDateTime;
 @Data
 public class PortfolioResponse {
 
+    /**
+     * Primary key of the Portfolio entity. Frontend uses ovaj id da bi mogao da
+     * navigira/refresh-uje konkretnu poziciju (npr. SELL flow iz GHI #199 trazi
+     * tacno ovu vrednost da bi otvorio Create Order formu).
+     */
+    private Long id;
+
+    /**
+     * Listing ID hartije za koju se drzi pozicija. Bez ovog polja, dugme
+     * ,,Prodaj'' u UI portfolija nema dovoljno podataka za rutu
+     * /orders/create/SELL/{listingId} (vidi GHI #199 - SELL forma se ne otvara).
+     */
+    private Long listingId;
+
     /** Type of security held: STOCK, FUTURES, FOREX, or OPTION. */
     private ListingType listingType;
 

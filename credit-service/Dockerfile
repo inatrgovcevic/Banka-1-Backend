@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN cd credit-service && gradle bootJar --no-daemon
+RUN gradle :credit-service:bootJar --no-daemon -x test
 
 FROM eclipse-temurin:21-jre-alpine
 

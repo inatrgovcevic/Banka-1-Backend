@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Configuration;
  * Filter se primenjuje sa najvisom prioritetom (order = 1) kako bi se rate limit proverio
  * pre ostalih filtera u lancu.
  */
-@Configuration
+@Configuration("employeeRateLimitConfig")
 public class RateLimitConfig {
 
     /**
@@ -17,7 +17,7 @@ public class RateLimitConfig {
      *
      * @return konfigurisan bean registracije filtera
      */
-    @Bean
+    @Bean(name = "employeeRateLimitFilter")
     public FilterRegistrationBean<RateLimitFilter> rateLimitFilter() {
         FilterRegistrationBean<RateLimitFilter> registration = new FilterRegistrationBean<>();
         registration.setFilter(new RateLimitFilter());

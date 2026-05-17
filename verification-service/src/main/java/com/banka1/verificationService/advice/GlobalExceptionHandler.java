@@ -7,6 +7,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -143,15 +144,19 @@ public class GlobalExceptionHandler {
     /**
      * Handles access denial exceptions.
      *
-     * Catches {@link org.springframework.security.access.AccessDeniedException}
+     * Catches {@link org.springframework.security.access.AccessDeniedException} and
+     * {@link org.springframework.security.authorization.AuthorizationDeniedException}
      * thrown by Spring Security when @PreAuthorize checks fail or when a user
      * lacks required roles. Returns a generic forbidden response without exposing
      * authorization logic to the client.
+     * <p>
+     * Spring Security 5: @Secured / @PreAuthorize -> AccessDeniedException.
+     * Spring Security 6: @PreAuthorize -> AuthorizationDeniedException (subclass of AccessDeniedException).
      *
      * @param ex the access denied exception
      * @return HTTP 403 Forbidden response
      */
-    @ExceptionHandler(AccessDeniedException.class)
+    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class})
     public ResponseEntity<ErrorResponseDto> handleAccessDenied(AccessDeniedException ex) {
         ErrorResponseDto error = new ErrorResponseDto(
                 "ERR_FORBIDDEN",

@@ -4,6 +4,7 @@ import com.banka1.account_service.domain.enums.CurrencyCode;
 import com.banka1.account_service.dto.request.BankPaymentDto;
 import com.banka1.account_service.dto.request.CreditDebitAccountDto;
 import com.banka1.account_service.dto.request.CreditDebitBankDto;
+import com.banka1.account_service.dto.request.OneSidedTransactionDto;
 import com.banka1.account_service.dto.request.PaymentDto;
 import com.banka1.account_service.dto.response.InfoResponseDto;
 import com.banka1.account_service.dto.response.InternalAccountDetailsDto;
@@ -56,6 +57,26 @@ public class AccountController {
     @PostMapping("/transaction")
     public ResponseEntity<UpdatedBalanceResponseDto> transaction(@AuthenticationPrincipal Jwt jwt, @RequestBody @Valid PaymentDto paymentDto) {
         return new ResponseEntity<>(accountService.transaction(paymentDto),HttpStatus.OK);
+    }
+
+    /**
+     * GHI #199: jednostrani debit za trade-leg klijentskog BUY-a.
+     * Bankin racun se NE dira (po PM direktivi); samo se sredstva skidaju sa
+     * korisnikovog racuna.
+     */
+    @PostMapping("/exchange/buy")
+    public ResponseEntity<UpdatedBalanceResponseDto> exchangeBuy(@AuthenticationPrincipal Jwt jwt, @RequestBody @Valid OneSidedTransactionDto request) {
+        return new ResponseEntity<>(accountService.exchangeBuy(request), HttpStatus.OK);
+    }
+
+    /**
+     * GHI #199: jednostrani credit za trade-leg klijentskog SELL-a.
+     * Bankin racun se NE dira na drugoj strani; korisnikov racun se direktno
+     * popunjava trade proceeds-om.
+     */
+    @PostMapping("/exchange/sell")
+    public ResponseEntity<UpdatedBalanceResponseDto> exchangeSell(@AuthenticationPrincipal Jwt jwt, @RequestBody @Valid OneSidedTransactionDto request) {
+        return new ResponseEntity<>(accountService.exchangeSell(request), HttpStatus.OK);
     }
 
 
@@ -176,4 +197,18 @@ public class AccountController {
         return new ResponseEntity<>(accountService.info(jwt,fromBankNumber,toBankNumber),HttpStatus.OK);
     }
 
+    /**
+     * PR_14 C14.8: kreira sistemski racun sa unapred zadatim brojem racuna.
+     *
+     * <p>Trading-service zove ovo prilikom kreiranja investicionog fonda — fond
+     * mora imati pravi {@code Account} red kako bi SAGA invest/redeem mogli da
+     * skidaju i dodaju novac na racun fonda.
+     */
+    @PreAuthorize("hasAnyRole('SERVICE','BASIC')")
+    @PostMapping("/system")
+    public ResponseEntity<InternalAccountDetailsDto> createSystemAccount(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestBody @Valid com.banka1.account_service.dto.request.CreateSystemAccountDto dto) {
+        return new ResponseEntity<>(accountService.createSystemAccount(dto), HttpStatus.CREATED);
+    }
 }

@@ -2,6 +2,7 @@ package com.banka1.order.client;
 
 import com.banka1.order.dto.AccountDetailsDto;
 import com.banka1.order.dto.AccountTransactionRequest;
+import com.banka1.order.dto.client.OneSidedTransactionDto;
 import com.banka1.order.dto.client.PaymentDto;
 import com.banka1.order.dto.response.UpdatedBalanceResponseDto;
 
@@ -72,4 +73,28 @@ public interface AccountClient {
      * @return updated balances after the transfer
      */
     UpdatedBalanceResponseDto transaction(PaymentDto payment);
+
+    /**
+     * Returns the RSD checking account number for the given owner.
+     * Used to find the seller's account when collecting OTC capital-gains tax.
+     *
+     * @param ownerId client/employee ID
+     * @return account number string, or null if none found
+     */
+    String getDefaultRsdAccountNumberForOwner(Long ownerId);
+
+    /**
+     * One-sided debit on a single account for the BUY trade leg (GHI #199).
+     * Bank account is NOT touched - the trade amount only leaves the user's
+     * account, satisfying the PM directive "NE DAJE BANCI PARE, samo se skidaju
+     * sa racuna".
+     */
+    UpdatedBalanceResponseDto exchangeBuy(OneSidedTransactionDto request);
+
+    /**
+     * One-sided credit on a single account for the SELL trade leg (GHI #199).
+     * Bank account is NOT touched on the source side - the user's account is
+     * topped up directly with the trade proceeds.
+     */
+    UpdatedBalanceResponseDto exchangeSell(OneSidedTransactionDto request);
 }

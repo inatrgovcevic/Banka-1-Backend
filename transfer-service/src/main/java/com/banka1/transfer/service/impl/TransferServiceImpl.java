@@ -52,7 +52,8 @@ public class TransferServiceImpl implements TransferService {
     private final RabbitClient rabbitClient;
     private final ClientClient clientClient;
 
-    @Value("${transfer.verification.skip:true}")
+    // Spec Celina 2: verifikacija (OTP) je obavezna za transfere; default false (secure).
+    @Value("${transfer.verification.skip:false}")
     private boolean skipVerification;
 
     /**

@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -74,15 +75,17 @@ public class OrderServiceExceptionHandler {
     }
 
     /**
-     * Handles AccessDeniedException (403 Forbidden).
-     * Thrown by Spring Security when @PreAuthorize / method security rejects the caller's role.
+     * Handles AccessDeniedException and AuthorizationDeniedException (403 Forbidden).
+     * <p>
+     * Spring Security 5: @Secured / @PreAuthorize -> AccessDeniedException.
+     * Spring Security 6: @PreAuthorize -> AuthorizationDeniedException (subclass of AccessDeniedException).
      * Without this explicit handler the catch-all Exception handler maps it to 500.
      *
-     * @param ex the AccessDeniedException
+     * @param ex the AccessDeniedException (or AuthorizationDeniedException subclass)
      * @param request the HTTP request
      * @return ResponseEntity with 403 status and error details
      */
-    @ExceptionHandler(AccessDeniedException.class)
+    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class})
     public ResponseEntity<ApiErrorResponse> handleAccessDenied(AccessDeniedException ex, HttpServletRequest request) {
         return build(HttpStatus.FORBIDDEN, "Access denied", request);
     }
@@ -106,6 +109,63 @@ public class OrderServiceExceptionHandler {
             return build(HttpStatus.BAD_REQUEST, "Request validation failed", request, fieldErrors);
         }
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
+    }
+
+    /**
+     * Handles MethodArgumentTypeMismatchException (400 Bad Request).
+     * Thrown when path/query parameter cannot be converted to required type
+     * (e.g., invalid enum value for status filter).
+     */
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleTypeMismatch(
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex,
+            HttpServletRequest request) {
+        String requiredType = ex.getRequiredType() == null ? "" : ex.getRequiredType().getSimpleName();
+        String detail = "Invalid value '" + ex.getValue() + "' for parameter '" + ex.getName() + "'"
+                + (requiredType.isEmpty() ? "." : ", expected type: " + requiredType + ".");
+        return build(HttpStatus.BAD_REQUEST, detail, request);
+    }
+
+    /**
+     * Handles JSON deserialization errors (400 Bad Request).
+     */
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponse> handleNotReadable(
+            org.springframework.http.converter.HttpMessageNotReadableException ex,
+            HttpServletRequest request) {
+        String detail = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        return build(HttpStatus.BAD_REQUEST, detail, request);
+    }
+
+    /**
+     * Handles missing required request parameters (400 Bad Request).
+     */
+    @ExceptionHandler(org.springframework.web.bind.MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiErrorResponse> handleMissingParam(
+            org.springframework.web.bind.MissingServletRequestParameterException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
+    }
+
+    /**
+     * Handles unsupported HTTP methods (405 Method Not Allowed).
+     */
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> handleMethodNotAllowed(
+            org.springframework.web.HttpRequestMethodNotSupportedException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.METHOD_NOT_ALLOWED, ex.getMessage(), request);
+    }
+
+    /**
+     * Handles missing routes (404 Not Found) — Spring Boot 4 falls through to
+     * static resource handler then throws NoResourceFoundException.
+     */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleNoResource(
+            org.springframework.web.servlet.resource.NoResourceFoundException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "Resource not found: " + ex.getResourcePath(), request);
     }
 
     /**

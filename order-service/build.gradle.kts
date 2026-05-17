@@ -35,8 +35,8 @@ repositories {
 }
 
 dependencies {
-    implementation("com.library:company-observability-starter:0.0.1-SNAPSHOT")
-    implementation("com.banka1:security-lib:0.0.1-SNAPSHOT")
+    implementation(project(":company-observability-starter"))
+    implementation(project(":security-lib"))
 
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("me.paulschwarz:springboot3-dotenv:5.0.1")
@@ -89,3 +89,8 @@ openApi {
 checkstyle {
     configFile = rootProject.file("checkstyle.xml")
 }
+
+// PR_19 library mode: konsolidovani service (user/banking-core/market/trading)
+// koristi ovaj modul kao project() dep, pa nam treba klasican "jar" artifact, ne fat bootJar.
+tasks.bootJar { enabled = false }
+tasks.jar { enabled = true; archiveClassifier.set("") }

@@ -1,14 +1,9 @@
 FROM gradle:8.14.3-jdk21-alpine AS builder
 
 WORKDIR /app
+COPY . .
 
-COPY client-service ./client-service
-COPY security-lib ./security-lib
-COPY company-observability-starter ./company-observability-starter
-
-WORKDIR /app/client-service
-
-RUN gradle build --no-daemon -x test -x checkstyleMain -x checkstyleTest
+RUN gradle :client-service:bootJar --no-daemon -x test
 
 FROM eclipse-temurin:21-jre-alpine
 

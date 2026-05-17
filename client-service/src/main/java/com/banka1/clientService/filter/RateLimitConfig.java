@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
  * pre ostalih filtera u lancu.
  * Parametri se citaju iz application.properties kako bi mogli biti podesavani bez rebuild-a.
  */
-@Configuration
+@Configuration("clientRateLimitConfig")
 public class RateLimitConfig {
 
     @Value("${rate-limit.max-requests:10}")
@@ -25,11 +25,11 @@ public class RateLimitConfig {
      *
      * @return konfigurisan bean registracije filtera
      */
-    @Bean
+    @Bean(name = "clientRateLimitFilter")
     public FilterRegistrationBean<RateLimitFilter> rateLimitFilter() {
         FilterRegistrationBean<RateLimitFilter> registration = new FilterRegistrationBean<>();
         registration.setFilter(new RateLimitFilter(maxRequests, windowMs));
-        registration.addUrlPatterns("/customers");
+        registration.addUrlPatterns("/clients/customers");
         registration.setOrder(1);
         return registration;
     }

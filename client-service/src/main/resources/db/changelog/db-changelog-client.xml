@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.17.xsd">
+
+    <include file="db/changelog/client/001-initial-schema.sql"/>
+    <include file="db/changelog/client/002-add-client-role.sql"/>
+    <include file="db/changelog/client/003-drop-salt-password.sql"/>
+    <include file="db/changelog/client/004-seed-data.sql"/>
+    <include file="db/changelog/client/005-activation.sql"/>
+    <include file="db/changelog/client/006-add-test-client.sql"/>
+    <include file="db/changelog/client/007-subin-trading-permissions.sql"/>
+    <include file="db/changelog/client/008-promote-clients-to-trading.sql"/>
+    <include file="db/changelog/client/009-distinct-test-clients.sql"/>
+    <include file="db/changelog/client/010-mile-interbank-test-client.sql"/>
+
+</databaseChangeLog>

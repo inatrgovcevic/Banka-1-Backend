@@ -9,6 +9,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.FieldError;
@@ -136,12 +137,17 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Obradjuje neocekivane izuzetke i vraca genericki odgovor za internu gresku.
+     * Obradjuje odbijanja pristupa iz Spring Security-ja sa statusom 403 Forbidden.
+     * <p>
+     * Spring Security 5: {@code @Secured} / {@code @PreAuthorize} -> {@link AccessDeniedException}.
+     * Spring Security 6: {@code @PreAuthorize} -> {@link AuthorizationDeniedException}
+     * (potklasa {@link AccessDeniedException}). Eksplicitno hvatamo obe da ne bi propala kroz
+     * generic {@link Exception} handler i vratila 500.
      *
-     * @param ex neocekivani izuzetak
-     * @return HTTP 500 odgovor sa standardizovanim telom greske
+     * @param ex izuzetak nedozvoljenog pristupa
+     * @return HTTP 403 odgovor sa standardizovanim telom greske
      */
-    @ExceptionHandler(AccessDeniedException.class)
+    @ExceptionHandler({AccessDeniedException.class, AuthorizationDeniedException.class})
     public ResponseEntity<ErrorResponseDto> handleAccessDenied(AccessDeniedException ex) {
         ErrorResponseDto error = new ErrorResponseDto(
                 "ERR_FORBIDDEN",

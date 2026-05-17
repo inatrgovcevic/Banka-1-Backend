@@ -1,0 +1,60 @@
+spring.application.name=cardService
+server.port=${CARD_SERVER_PORT}
+# Security
+banka.security.issuer=banka1
+banka.security.id=id
+banka.security.roles-claim=roles
+#ms
+banka.security.expiration-time=3600000
+#days (PR_01 C1.7: smanjen sa 1 mesec)
+token.refresh.expiration-time=${TOKEN_REFRESH_EXPIRATION_DAYS:7}
+#minutes
+token.confirmation.expiration-time=15
+banka.security.permissions-claim=permissions
+banka.security.permit-all=/v3/api-docs/**,/v3/api-docs.yaml,/swagger-ui/**,/swagger-ui.html,/actuator/health/liveness,/actuator/health/readiness,/actuator/info
+springdoc.api-docs.enabled=${SWAGGER_ENABLED:true}
+springdoc.swagger-ui.enabled=${SWAGGER_ENABLED:true}
+springdoc.swagger-ui.config-url=/api/cards/v3/api-docs/swagger-config
+springdoc.swagger-ui.url=/api/cards/v3/api-docs
+server.forward-headers-strategy=FRAMEWORK
+management.endpoints.web.exposure.include=health
+management.endpoint.health.probes.enabled=true
+management.tracing.sampling.probability=1.0
+management.otlp.tracing.endpoint=${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+management.otlp.metrics.export.enabled=true
+management.otlp.metrics.export.url=${MANAGEMENT_OTLP_METRICS_EXPORT_URL:http://localhost:4318/v1/metrics}
+# PR_17 C17.2 (HOTFIX_02): show-details=always leak-uje DB konekciju, RabbitMQ host
+# i druge interne detalje na anonimnom /actuator/health/liveness pozivu.
+# 'when-authorized' otkriva detalje samo autentifikovanim korisnicima sa rolom ROLE_ADMIN.
+management.endpoint.health.show-details=when-authorized
+management.endpoint.health.roles=ADMIN
+management.endpoint.health.group.readiness.include=readinessState,db,rabbit
+
+jwt.secret=${JWT_SECRET}
+
+# RabbitMQ
+spring.rabbitmq.host=${RABBITMQ_HOST}
+spring.rabbitmq.port=${RABBITMQ_PORT}
+spring.rabbitmq.username=${RABBITMQ_USERNAME}
+spring.rabbitmq.password=${RABBITMQ_PASSWORD}
+spring.rabbitmq.listener.simple.default-requeue-rejected=false
+spring.rabbitmq.listener.simple.auto-startup=${RABBITMQ_LISTENER_ENABLED:true}
+notification.rabbit.exchange=${NOTIFICATION_EXCHANGE}
+card.rabbit.auto.exchange=${CARD_AUTO_EXCHANGE:${NOTIFICATION_EXCHANGE}}
+card.rabbit.auto.queue=${CARD_AUTO_QUEUE:card-service-auto-card-queue}
+card.rabbit.auto.routing-key=${CARD_AUTO_ROUTING_KEY:card.create}
+services.client.url=${SERVICES_CLIENT_URL:http://localhost:8083}
+services.account.url=${SERVICES_ACCOUNT_URL:http://localhost:8084}
+services.verification.url=${SERVICES_VERIFICATION_URL:http://localhost:8086}
+card.creation.automatic.default-limit=${CARD_CREATION_AUTOMATIC_DEFAULT_LIMIT:1000000}
+# Connection to the card_db database
+spring.datasource.url=jdbc:postgresql://${CARD_DB_HOST}:${CARD_DB_PORT}/${CARD_DB_NAME}
+spring.datasource.username=${CARD_DB_USER}
+spring.datasource.password=${CARD_DB_PASSWORD}
+spring.datasource.driver-class-name=org.postgresql.Driver
+# Liquibase manages DDL changes, Hibernate only validates the schema
+spring.jpa.hibernate.ddl-auto=validate
+# Liquibase
+spring.liquibase.enabled=true
+spring.liquibase.change-log=classpath:db/changelog/db-changelog-card.xml
+company.observability.starter.user-id-mdc-enabled=true

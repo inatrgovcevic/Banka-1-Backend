@@ -21,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -37,6 +38,7 @@ class AccountServiceImplementationTest {
     @Mock private TransactionalService transactionalService;
     @Mock private AccountRepository accountRepository;
     @Mock private CurrencyRepository currencyRepository;
+    @Mock private JdbcTemplate jdbcTemplate;
 
     @InjectMocks
     private AccountServiceImplementation service;
@@ -462,12 +464,12 @@ class AccountServiceImplementationTest {
 
     @Test
     void getStateAccountDetailsReturnsStateRsdAccount() {
-        CheckingAccount state = checkingAccount("1110002000000000011", -2L, RSD);
+        CheckingAccount state = checkingAccount("111000200000003012", -2L, RSD);
         when(accountRepository.findStateAccountByCurrencyCode(CurrencyCode.RSD)).thenReturn(Optional.of(state));
 
         InternalAccountDetailsDto result = service.getStateAccountDetails(CurrencyCode.RSD);
 
-        assertThat(result.accountNumber()).isEqualTo("1110002000000000011");
+        assertThat(result.accountNumber()).isEqualTo("111000200000003012");
         assertThat(result.ownerId()).isEqualTo(-2L);
         assertThat(result.currency()).isEqualTo("RSD");
     }

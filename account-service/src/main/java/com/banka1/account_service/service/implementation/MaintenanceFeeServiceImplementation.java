@@ -3,6 +3,7 @@ package com.banka1.account_service.service.implementation;
 import com.banka1.account_service.domain.Account;
 import com.banka1.account_service.domain.CheckingAccount;
 import com.banka1.account_service.domain.Currency;
+import com.banka1.account_service.domain.SystemAccountIds;
 import com.banka1.account_service.domain.TransactionRecord;
 import com.banka1.account_service.domain.enums.CurrencyCode;
 import com.banka1.account_service.repository.AccountRepository;
@@ -33,7 +34,7 @@ public class MaintenanceFeeServiceImplementation implements MaintenanceFeeServic
         Currency currency=currencyRepository.findByOznaka(CurrencyCode.RSD).orElse(null);
         if(currency==null)
             throw new IllegalStateException("Ne postoji RSD currency");
-         Account bankAccount = accountRepository.findByVlasnikAndCurrency(-1L, currency).orElseThrow(() -> new RuntimeException("Bank RSD account not found"));
+         Account bankAccount = accountRepository.findByVlasnikAndCurrency(SystemAccountIds.BANK, currency).orElseThrow(() -> new RuntimeException("Bank RSD account not found"));
         BigDecimal total = BigDecimal.ZERO;
 
         for (CheckingAccount acc : accounts) {

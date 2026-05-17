@@ -14,6 +14,7 @@ import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -111,8 +112,23 @@ public class Zaposlen extends BaseEntity {
 
     /**
      * Indikator da li je nalog zaposlenog aktivan.
+     * Default je {@code true} po specifikaciji (Celina 1, "Po default-u se podrazumeva da je
+     * zaposleni aktivan"). Admin moze eksplicitno kreirati neaktivnog zaposlenog kroz DTO flag.
      */
-    private boolean aktivan;
+    private boolean aktivan = true;
+
+    /**
+     * Brojac neuspesnih pokusaja prijave; resetuje se na 0 nakon uspesne prijave.
+     * Koristi se za zakljucavanje naloga posle vise neuspeha (Celina 1, Scenario 5).
+     */
+    @Column(nullable = false)
+    private int failedLoginAttempts = 0;
+
+    /**
+     * Trenutak do kog je nalog zakljucan zbog vise neuspesnih pokusaja prijave;
+     * {@code null} kada nalog nije zakljucan.
+     */
+    private LocalDateTime lockedUntil;
 
     /**
      * RBAC uloga zaposlenog koja odredjuje nivo pristupa.

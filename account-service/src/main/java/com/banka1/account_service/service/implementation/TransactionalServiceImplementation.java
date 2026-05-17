@@ -1,6 +1,7 @@
 package com.banka1.account_service.service.implementation;
 
 import com.banka1.account_service.domain.Account;
+import com.banka1.account_service.domain.SystemAccountIds;
 import com.banka1.account_service.dto.request.BankPaymentDto;
 import com.banka1.account_service.dto.request.PaymentDto;
 import com.banka1.account_service.dto.response.UpdatedBalanceResponseDto;
@@ -90,14 +91,30 @@ public class TransactionalServiceImplementation implements TransactionalService 
     @Transactional
     @Override
     public UpdatedBalanceResponseDto transfer(Account from, Account to, Account bankSender, Account bankTarget, PaymentDto paymentDto) {
-        BigDecimal commission = paymentDto.getCommission();
+        BigDecimal commission = paymentDto.getCommission() != null ? paymentDto.getCommission() : BigDecimal.ZERO;
         if (from.getCurrency().getOznaka() == to.getCurrency().getOznaka()) {
+            // Spec Celina 2 ("Provizije transakcija se prebacuju na racun banke u toj valuti"):
+            // ako je provizija > 0 za istu valutu (npr. cross-client placanje), ona ide na
+            // bankin racun u toj valuti — ne sme nestati.
             debit(from, paymentDto.getFromAmount().add(commission));
             credit(to, paymentDto.getToAmount());
+            if (commission.signum() > 0 && bankSender != null) {
+                credit(bankSender, commission);
+            }
         } else {
+            if (to.getVlasnik().equals(SystemAccountIds.BANK)) {
+                debit(from, paymentDto.getFromAmount());
+                credit(to, paymentDto.getToAmount());
+                return new UpdatedBalanceResponseDto(from.getStanje(), to.getStanje());
+            }
+            // Cross-currency: spec Celina 2 ("Primer 2") trazi rutiranje preko RSD bank racuna
+            // sa proviziom na svakom koraku. Ovde imamo dva-leg model: from -> bankSender (ista
+            // valuta) -> bankTarget (target valuta) -> to. Ako je jedan od bank racuna RSD,
+            // efekat je isti kao spec Primer 2. Provizija se naplacuje na primaocevoj strani
+            // i ostaje na bankTarget racunu.
             debit(from, paymentDto.getFromAmount());
             credit(bankSender, paymentDto.getFromAmount());
-            debit(bankTarget, paymentDto.getToAmount());
+            debit(bankTarget, paymentDto.getToAmount().subtract(commission));
             credit(to, paymentDto.getToAmount().subtract(commission));
         }
         return new UpdatedBalanceResponseDto(from.getStanje(), to.getStanje());
@@ -123,6 +140,22 @@ public class TransactionalServiceImplementation implements TransactionalService 
     @Override
     public void debitTransactional(Account account, BigDecimal amount) {
       debit(account,amount);
+    }
+
+    @Transactional
+    @Override
+    public void withdrawOneSided(Account account, BigDecimal amount) {
+        // GHI #199: jednostrana debit operacija za trade-leg klijentskog BUY-a.
+        // Reuse postojece debit() primitive sa istim saldo/limit proverama;
+        // bankin racun se NE dira (po PM direktivi).
+        debit(account, amount);
+    }
+
+    @Transactional
+    @Override
+    public void depositOneSided(Account account, BigDecimal amount) {
+        // GHI #199: jednostrana credit operacija za trade-leg klijentskog SELL-a.
+        credit(account, amount);
     }
 
 

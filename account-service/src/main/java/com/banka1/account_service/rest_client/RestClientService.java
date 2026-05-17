@@ -19,13 +19,13 @@ public class RestClientService {
 
     public ClientInfoResponseDto getUser(String jmbg) {
         return restClient.get()
-                .uri("/customers/jmbg/{jmbg}", jmbg)
+                .uri("/clients/customers/jmbg/{jmbg}", jmbg)
                 .retrieve()
                 .body(ClientInfoResponseDto.class);
     }
     public ClientInfoResponseDto getUser(Long id) {
         return restClient.get()
-                .uri("/customers/{id}", id)
+                .uri("/clients/customers/{id}", id)
                 .retrieve()
                 .body(ClientInfoResponseDto.class);
     }

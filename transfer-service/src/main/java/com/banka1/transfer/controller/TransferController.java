@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.*;
  * Sve rute su mapirane na koren servisa (iza API Gateway-a).
  */
 @RestController
-@RequestMapping("")
+@RequestMapping("/transfers")
 @RequiredArgsConstructor
 @Validated
 public class TransferController {

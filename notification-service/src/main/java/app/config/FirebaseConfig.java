@@ -71,8 +71,12 @@ public class FirebaseConfig {
                     .build();
             FirebaseApp.initializeApp(options);
             log.info("Firebase initialized from {}", credentialsPath);
-        } catch (IOException e) {
-            log.error("Failed to initialize Firebase from {}: {}", credentialsPath, e.getMessage());
+        } catch (IOException | RuntimeException e) {
+            // RuntimeException catches IllegalArgumentException("no JSON input found") that
+            // GoogleCredentials.fromStream throws for empty/invalid content (e.g. /dev/null mount
+            // in docker-compose when secrets aren't provided locally — HOTFIX_01 from CLAUDE.md).
+            log.warn("Firebase init skipped — credentials at {} unreadable or empty: {}",
+                    credentialsPath, e.getMessage());
         }
     }
 }

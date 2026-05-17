@@ -209,6 +209,18 @@ docker compose -f setup/docker-compose.yml up -d postgres_notification rabbitmq
 
 The service starts on `http://localhost:8006`.
 
+### Firebase Cloud Messaging (optional)
+
+FCM push notifications are optional. The service starts and works in email-only mode if no service-account JSON is provided.
+
+To enable FCM:
+
+- Place the Firebase service-account JSON file **outside** the repository working tree (e.g. `~/secrets/banka1-firebase.json`). Do NOT commit it. The repository `.gitignore` already excludes `*-firebase-adminsdk-*.json` and `**/firebase-credentials.json`.
+- Set `FIREBASE_CREDENTIALS_HOST_PATH` in `setup/.env` to the absolute host path. The docker-compose bind-mount exposes it inside the container at `/app/firebase-credentials.json` read-only.
+- Leave `FIREBASE_CREDENTIALS_PATH=/app/firebase-credentials.json` (default). If unset, FCM is silently disabled.
+
+Production deployments should use the platform secret manager (Kubernetes Secret, Docker Swarm secret, AWS Secrets Manager, HashiCorp Vault) instead of bind-mounting from disk.
+
 ## Running with Docker Compose
 
 To run the full system including all services:

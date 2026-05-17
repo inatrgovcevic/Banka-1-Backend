@@ -15,7 +15,7 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CreditDebitAccountDto {
-    @Pattern(regexp = "^\\d{19}$", message = "Broj racuna mora imati 19 cifara")
+    @Pattern(regexp = "^\\d{18,19}$", message = "Broj racuna mora imati 18 ili 19 cifara")
     private String accountNumber;
     @NotNull(message = "Unesi amount")
     @DecimalMin(value = "0.0", inclusive = false)

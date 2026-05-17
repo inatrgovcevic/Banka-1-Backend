@@ -1,6 +1,8 @@
 package com.banka1.order.controller;
 
 import com.banka1.order.dto.ActuaryAgentDto;
+import com.banka1.order.dto.ActuaryProfitDto;
+import com.banka1.order.dto.BankProfitSummaryDto;
 import com.banka1.order.dto.SetLimitRequestDto;
 import com.banka1.order.dto.SetNeedApprovalRequestDto;
 import com.banka1.order.dto.SimpleResponse;
@@ -11,10 +13,12 @@ import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -135,5 +139,35 @@ public class ActuaryController {
     ) {
         actuaryService.setNeedApproval(id, request);
         return ResponseEntity.ok(SimpleResponse.success("Need-approval flag updated successfully"));
+    }
+
+    /**
+     * PR_14 C14.9: Trading P&L po aktuaru — suma komisija sa izvrsenih transakcija.
+     * Zameni stari frontend hack koji je sumirao AUM po fund managerima (pogresan domen).
+     *
+     * @param from opciono — donja granica intervala (ISO datetime)
+     * @param to   opciono — gornja granica intervala (ISO datetime)
+     */
+    @GetMapping("/profit")
+    @PreAuthorize("hasRole('SUPERVISOR')")
+    public ResponseEntity<List<ActuaryProfitDto>> profitByActuary(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
+    ) {
+        return ResponseEntity.ok(actuaryService.profitByActuary(from, to));
+    }
+
+    /**
+     * PR_17 C17.6: Bank-wide trading P&L summary (Spec Celina 4 — Profit Banke).
+     * Trading-side doprinos zaradi banke. Fund-side se sabira na frontend-u
+     * (postojeci /funds endpoint vraca fund.profit polja).
+     */
+    @GetMapping("/profit/bank-summary")
+    @PreAuthorize("hasRole('SUPERVISOR')")
+    public ResponseEntity<BankProfitSummaryDto> bankProfitSummary(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
+    ) {
+        return ResponseEntity.ok(actuaryService.bankProfitSummary(from, to));
     }
 }

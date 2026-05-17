@@ -29,8 +29,8 @@ repositories {
 }
 
 dependencies {
-    implementation("com.banka1:security-lib:0.0.1-SNAPSHOT")
-    implementation("com.library:company-observability-starter:0.0.1-SNAPSHOT")
+    implementation(project(":security-lib"))
+    implementation(project(":company-observability-starter"))
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("me.paulschwarz:springboot3-dotenv:5.0.1")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
@@ -50,12 +50,9 @@ dependencies {
     annotationProcessor("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok-mapstruct-binding:0.2.0")
     annotationProcessor("org.mapstruct:mapstruct-processor:1.5.5.Final")
-    testImplementation("org.springframework.boot:spring-boot-starter-amqp-test")
-    testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
-    testImplementation("org.springframework.boot:spring-boot-starter-liquibase-test")
-    testImplementation("org.springframework.boot:spring-boot-starter-security-test")
+    // PR_16 C16.1: phantom test starter-i uklonjeni.
     testImplementation("org.springframework.boot:spring-boot-starter-test")
-    testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+    testImplementation("org.springframework.security:spring-security-test")
     testRuntimeOnly("com.h2database:h2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
@@ -91,3 +88,8 @@ openApi {
     outputFileName.set("openapi.yml")
     waitTimeInSeconds.set(30)
 }
+
+// PR_19 library mode: konsolidovani service (user/banking-core/market/trading)
+// koristi ovaj modul kao project() dep, pa nam treba klasican "jar" artifact, ne fat bootJar.
+tasks.bootJar { enabled = false }
+tasks.jar { enabled = true; archiveClassifier.set("") }

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!--
+        PR_19 C19.X: konsolidovani user-service izvrsava merge employee + client
+        legacy migracija u jednom DB-u (user_service). Subdir-ovi (employee/, client/)
+        su uvedeni da bi izbegli filename collision na classpath-u kada legacy moduli
+        budu pakovani u user-service fat jar.
+    -->
+    <include file="db/changelog/db-changelog-employee.xml"/>
+    <include file="db/changelog/db-changelog-client.xml"/>
+
+</databaseChangeLog>

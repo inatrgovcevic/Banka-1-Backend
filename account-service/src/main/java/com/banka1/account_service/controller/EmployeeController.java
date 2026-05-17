@@ -34,7 +34,7 @@ import java.util.List;
  */
 @RestController
 @AllArgsConstructor
-@RequestMapping("/employee")
+@RequestMapping("/accounts/employee")
 //todo autorizacija
 
 public class EmployeeController {

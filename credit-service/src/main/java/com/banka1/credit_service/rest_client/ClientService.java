@@ -26,18 +26,18 @@ public class ClientService {
 
     public void addMarginPermission(Long id)
     {
-        restClient.put().uri("/customers/margin/{id}",id).retrieve().toBodilessEntity();
+        restClient.put().uri("/clients/customers/margin/{id}",id).retrieve().toBodilessEntity();
     }
 
 //    public ClientInfoResponseDto getUser(String jmbg) {
 //        return clientServiceClient.get()
-//                .uri("/customers/jmbg/{jmbg}", jmbg)
+//                .uri("/clients/customers/jmbg/{jmbg}", jmbg)
 //                .retrieve()
 //                .body(ClientInfoResponseDto.class);
 //    }
 //    public ClientInfoResponseDto getUser(Long id) {
 //        return clientServiceClient.get()
-//                .uri("/customers/{id}", id)
+//                .uri("/clients/customers/{id}", id)
 //                .retrieve()
 //                .body(ClientInfoResponseDto.class);
 //    }

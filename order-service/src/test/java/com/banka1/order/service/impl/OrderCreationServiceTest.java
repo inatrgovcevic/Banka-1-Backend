@@ -237,6 +237,17 @@ class OrderCreationServiceTest {
     }
 
     @Test
+    void createBuyOrder_forClientRejectsWhenAccountLacksFunds() {
+        accountDetails.setBalance(new BigDecimal("100.00"));
+
+        assertThatThrownBy(() -> service.createBuyOrder(clientUser, buyRequest))
+                .isInstanceOf(BusinessConflictException.class)
+                .hasMessageContaining("Insufficient funds");
+
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
     void confirmBuyOrder_forAgentNeedingApprovalMovesToPending() {
         ActuaryInfo agent = new ActuaryInfo();
         agent.setEmployeeId(2L);

@@ -138,7 +138,6 @@ public class ExchangeRateController {
      */
     @GetMapping("/internal/calculate/no-commission")
     @Operation(summary = "Calculate currency equivalence via RSD base without commission")
-    @PreAuthorize("hasRole('SERVICE')")
     public ConversionResponseDto calculateWithoutCommission(@Valid ConversionQueryDto request) {
         return exchangeRateService.convertWithoutCommission(new ConversionRequestDto(
                 request.getAmount(),

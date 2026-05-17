@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.amqp.AmqpException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -112,6 +114,12 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/test-access-denied")
         public void throwAccessDenied() {
             throw new AccessDeniedException("Zabranjen pristup");
+        }
+
+        @GetMapping("/test-authorization-denied")
+        public void throwAuthorizationDenied() {
+            // Spring Security 6 wrap of @PreAuthorize denial
+            throw new AuthorizationDeniedException("Zabranjen pristup", new AuthorizationDecision(false));
         }
 
         @GetMapping("/test-constraint-email")
@@ -245,6 +253,15 @@ class GlobalExceptionHandlerTest {
     @Test
     void accessDeniedReturns403() throws Exception {
         mockMvc.perform(get("/test-access-denied"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("ERR_FORBIDDEN"));
+    }
+
+    @Test
+    void authorizationDeniedReturns403() throws Exception {
+        // Spring Security 6 raises AuthorizationDeniedException for @PreAuthorize
+        // denials; the same handler must catch it and return 403, not fall through to 500.
+        mockMvc.perform(get("/test-authorization-denied"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("ERR_FORBIDDEN"));
     }
