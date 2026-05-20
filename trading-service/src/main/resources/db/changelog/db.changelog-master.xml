@@ -45,4 +45,7 @@
     <!-- DEV-only normalized RSD-only multi-fund fixtures. -->
     <include file="db/changelog/trading-otc/010-fund-seed-rsd-multi-funds.sql"/>
 
+    <!-- Spark analytics materialized results. -->
+    <include file="db/changelog/trading-analytics/011-create-analytics-results.sql"/>
+
 </databaseChangeLog>

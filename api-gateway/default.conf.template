@@ -185,7 +185,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # === Trading domain (order/portfolio/actuaries + margin/otc/funds) ===
+    # === Trading domain (order/portfolio/actuaries + margin/otc/funds/analytics) ===
 
     # /order/* — frontend prefix; trading-service controllers at /orders, /portfolio, /actuaries, /tax (no prefix). Strip.
     location = /order {
@@ -283,6 +283,21 @@ server {
     }
 
     location /margin/ {
+        proxy_pass http://trading_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /analytics {
+        proxy_pass http://trading_service/analytics$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    location /analytics/ {
         proxy_pass http://trading_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
