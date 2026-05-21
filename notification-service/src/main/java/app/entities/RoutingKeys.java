@@ -77,6 +77,26 @@ public final class RoutingKeys {
      * Routing key za uspesno naplaceni porez.
      */
     public static final String TAX_COLLECTED = "tax.collected";
+    /**
+     * Routing key za novu OTC kontraponudu.
+     */
+    public static final String OTC_COUNTEROFFER_CREATED = "otc.counteroffer.created";
+    /**
+     * Routing key za prihvacenu OTC ponudu.
+     */
+    public static final String OTC_OFFER_ACCEPTED = "otc.offer.accepted";
+    /**
+     * Routing key za odbijenu OTC ponudu.
+     */
+    public static final String OTC_OFFER_DECLINED = "otc.offer.declined";
+    /**
+     * Routing key za otkazanu OTC ponudu.
+     */
+    public static final String OTC_OFFER_CANCELLED = "otc.offer.cancelled";
+    /**
+     * Routing key za OTC ugovor koji uskoro istice.
+     */
+    public static final String OTC_CONTRACT_EXPIRING = "otc.contract.expiring";
 
     private RoutingKeys() {}
 }

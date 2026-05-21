@@ -22,7 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
         "notification.rabbit.card-routing-key=card.#",
         "notification.rabbit.credit-routing-key=credit.#",
         "notification.rabbit.order-routing-key=order.#",
-        "notification.rabbit.tax-routing-key=tax.#"
+        "notification.rabbit.tax-routing-key=tax.#",
+        "notification.rabbit.otc-routing-key=otc.#"
 })
 class RabbitBindingsConfigIntegrationTest {
 
@@ -38,6 +39,10 @@ class RabbitBindingsConfigIntegrationTest {
     @Qualifier("taxNotificationBinding")
     private Binding taxNotificationBinding;
 
+    @Autowired
+    @Qualifier("otcNotificationBinding")
+    private Binding otcNotificationBinding;
+
     @Test
     void orderBindingUsesOrderWildcardRoutingKey() {
         assertEquals("order.#", orderNotificationBinding.getRoutingKey());
@@ -51,5 +56,10 @@ class RabbitBindingsConfigIntegrationTest {
     @Test
     void taxBindingUsesTaxWildcardRoutingKey() {
         assertEquals("tax.#", taxNotificationBinding.getRoutingKey());
+    }
+
+    @Test
+    void otcBindingUsesOtcWildcardRoutingKey() {
+        assertEquals("otc.#", otcNotificationBinding.getRoutingKey());
     }
 }

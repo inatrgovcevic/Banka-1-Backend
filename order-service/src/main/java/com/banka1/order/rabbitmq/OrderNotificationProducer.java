@@ -45,4 +45,24 @@ public class OrderNotificationProducer {
     public void sendTaxCollected(Object payload) {
         rabbitTemplate.convertAndSend(exchange, "tax.collected", payload);
     }
+
+    public void sendOtcCounterofferCreated(Object payload) {
+        rabbitTemplate.convertAndSend(exchange, "otc.counteroffer.created", payload);
+    }
+
+    public void sendOtcOfferAccepted(Object payload) {
+        rabbitTemplate.convertAndSend(exchange, "otc.offer.accepted", payload);
+    }
+
+    public void sendOtcOfferDeclined(Object payload) {
+        rabbitTemplate.convertAndSend(exchange, "otc.offer.declined", payload);
+    }
+
+    public void sendOtcOfferCancelled(Object payload) {
+        rabbitTemplate.convertAndSend(exchange, "otc.offer.cancelled", payload);
+    }
+
+    public void sendOtcContractExpiring(Object payload) {
+        rabbitTemplate.convertAndSend(exchange, "otc.contract.expiring", payload);
+    }
 }

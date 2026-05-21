@@ -170,6 +170,17 @@ public class RabbitConfig {
                 .with(taxRoutingKey);
     }
 
+    @Bean
+    public Binding otcNotificationBinding(
+            Queue notificationServiceQueue,
+            TopicExchange employeeEventsExchange,
+            @Value("${notification.rabbit.otc-routing-key}") String otcRoutingKey
+    ) {
+        return BindingBuilder.bind(notificationServiceQueue)
+                .to(employeeEventsExchange)
+                .with(otcRoutingKey);
+    }
+
     /**
      * Converts RabbitMQ JSON payloads ==> to/from ==> Java objects.
      *

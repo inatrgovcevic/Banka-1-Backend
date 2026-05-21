@@ -18,6 +18,10 @@ import java.util.Optional;
 @Repository
 public interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Portfolio p where p.id = :portfolioId")
+    Optional<Portfolio> findByIdForUpdate(@Param("portfolioId") Long portfolioId);
+
     /**
      * Returns all positions held by the given user.
      *
