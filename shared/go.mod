@@ -1,6 +1,6 @@
 module github.com/raf-si-2025/banka-1-go/shared
 
-go 1.25.0
+go 1.23.0
 
 require github.com/kelseyhightower/envconfig v1.4.0
 
