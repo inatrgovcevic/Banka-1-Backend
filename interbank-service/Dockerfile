@@ -11,7 +11,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: builder
 # ---------------------------------------------------------------------------
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # Install git (needed for go mod download from VCS sources; also for ldflags).
 RUN apk add --no-cache git

@@ -1,6 +1,6 @@
 module github.com/raf-si-2025/banka-1-go/saga-orchestrator-service
 
-go 1.23.0
+go 1.25.0
 
 require (
 	github.com/go-chi/chi/v5 v5.3.0
