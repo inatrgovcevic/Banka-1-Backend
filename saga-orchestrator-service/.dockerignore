@@ -1,0 +1,28 @@
+# .dockerignore for saga-orchestrator-service
+# Applied when building from the workspace root context.
+
+# Go build artifacts
+saga-orchestrator-service/bin/
+saga-orchestrator-service/*.test
+saga-orchestrator-service/*.out
+
+# Test and coverage output
+*.coverprofile
+*.cover
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Git history (not needed in build context)
+.git/
+.gitignore
+
+# CI/CD artefacts
+.github/

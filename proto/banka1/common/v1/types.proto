@@ -1,0 +1,31 @@
+syntax = "proto3";
+package banka1.common.v1;
+
+option go_package = "github.com/raf-si-2025/banka-1-go/proto/banka1/common/v1;commonv1";
+
+message ForeignBankId {
+    int32 routing_number = 1;
+    string id = 2;
+}
+
+message IdempotenceKey {
+    int32 routing_number = 1;
+    string locally_generated_key = 2;
+}
+
+message MonetaryValue {
+    string currency = 1;        // RSD, EUR, USD, CHF, JPY, AUD, CAD, GBP
+    string amount = 2;          // BigDecimal serialized as plain string (matches Java WRITE_BIGDECIMAL_AS_PLAIN)
+}
+
+message StockDescription {
+    string ticker = 1;
+}
+
+message OptionDescription {
+    ForeignBankId negotiation_id = 1;
+    StockDescription stock = 2;
+    MonetaryValue price_per_unit = 3;
+    string settlement_date = 4;  // RFC3339 UTC string (intentionally NOT google.protobuf.Timestamp — Java wire format uses string for OffsetDateTime via Jackson JavaTimeModule)
+    int32 amount = 5;
+}

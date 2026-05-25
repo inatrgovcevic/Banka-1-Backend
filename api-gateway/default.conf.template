@@ -47,6 +47,36 @@ server {
 
     client_max_body_size 25m;
 
+    # === CORS (server-wide) ===
+    # Reflect-origin za localhost dev. add_header je allowed u `server` kontekstu,
+    # NIJE u `if in server`. `always` flag obavezan da headers prolaze i kroz 4xx/5xx.
+    #
+    # KRITICNO: Spring Boot upstream-i emit-uju Access-Control-* headers preko
+    # WebMvc CORS support-a. Ako i gateway add_header-uje, browser vidi DUPLE
+    # vrednosti ("http://localhost:4200, http://localhost:4200") i odbija request.
+    # Resenje: `proxy_hide_header` u svakom proxy_pass bloku skida upstream CORS
+    # headers PRE nego sto add_header iz server scope-a emit-uje nase.
+    set $cors_origin "";
+    if ($http_origin ~* ^(https?://localhost(:[0-9]+)?|https?://127\.0\.0\.1(:[0-9]+)?)$) {
+        set $cors_origin $http_origin;
+    }
+    add_header Access-Control-Allow-Origin       $cors_origin always;
+    add_header Access-Control-Allow-Credentials  "true" always;
+    add_header Access-Control-Allow-Methods      "GET, POST, PUT, PATCH, DELETE, OPTIONS" always;
+    add_header Access-Control-Allow-Headers      "Authorization, Content-Type, X-Api-Key, X-Requested-With, X-Correlation-Id, Accept, Origin" always;
+    add_header Access-Control-Expose-Headers     "Location, X-Correlation-Id" always;
+    add_header Access-Control-Max-Age            "3600" always;
+
+    # Skinuti CORS headers koje upstream sam emit-uje (Spring Boot servisi imaju
+    # svoj WebMvc CORS, Go chi sad ima cors middleware) — gateway je single source
+    # of truth.
+    proxy_hide_header Access-Control-Allow-Origin;
+    proxy_hide_header Access-Control-Allow-Credentials;
+    proxy_hide_header Access-Control-Allow-Methods;
+    proxy_hide_header Access-Control-Allow-Headers;
+    proxy_hide_header Access-Control-Expose-Headers;
+    proxy_hide_header Access-Control-Max-Age;
+
     # === User domain (employee + client; konsolidovano u user-service) ===
 
     # Exact /employees (Spring CrudController @GetMapping at /employees, no trailing slash)

@@ -458,6 +458,11 @@ services:
       OTEL_LOGS_EXPORTER: none
       OTEL_SERVICE_NAME: banking-core-service
       LOGGING_FILE_PATH: /var/log/banka
+      # margin_transactions tabela nije pokrivena Liquibase changelog-om iz
+      # legacy modula; ddl-auto=update auto-kreira missing tabele pa Hibernate
+      # schema validation prolazi. NE menja kolone na postojecim tabelama jer
+      # entiteti su vec usaglaseni sa Liquibase shemom.
+      SPRING_JPA_HIBERNATE_DDL_AUTO: ${SPRING_JPA_HIBERNATE_DDL_AUTO:-update}
       <<: *jvm-tuning
     depends_on:
       postgres: { condition: service_healthy }
@@ -624,6 +629,13 @@ services:
       SERVICES_USER_URL: http://user-service:${USER_SERVICE_PORT:-8081}
       SERVICES_BANKING_CORE_URL: http://banking-core-service:${BANKING_CORE_SERVICE_PORT:-8084}
       SERVICES_MARKET_URL: http://market-service:${MARKET_SERVICE_PORT:-8085}
+      # Legacy aliasi: pre-PR_20 konsolidacije account/verification je bio
+      # deo zasebnih modula koji su sada u banking-core-service; exchange je
+      # spojen u market-service. credit-service code i dalje cita stare
+      # SERVICES_* env imena pa ih mapiramo na nove servise.
+      SERVICES_ACCOUNT_URL: http://banking-core-service:${BANKING_CORE_SERVICE_PORT:-8084}
+      SERVICES_VERIFICATION_URL: http://banking-core-service:${BANKING_CORE_SERVICE_PORT:-8084}
+      SERVICES_EXCHANGE_URL: http://market-service:${MARKET_SERVICE_PORT:-8085}
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
       RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
@@ -659,104 +671,134 @@ services:
       start_period: 30s
     deploy: *app-resource-limits
 
-  # 7/7. Saga Orchestrator Service (samostalan, #213, #214, #215)
+  # 7/7. Saga Orchestrator Service — Go rewrite (PR_GO_02; replaces Spring Boot build).
+  # Build context is the workspace root (Banka-1-Backend-go/) so that the
+  # go.work workspace and all local modules are available to the multi-stage Dockerfile.
+  # Env vars use the SAGA_* prefix consumed by shared/config.Load.
+  # NOTE: Sub-struct fields are double-prefixed by envconfig:
+  #   Config.Saga.RabbitMQURL          → SAGA_SAGA_RABBITMQ_URL
+  #   Config.Saga.Services.BankingCoreURL → SAGA_SAGA_SERVICES_BANKING_CORE_URL
+  #   Config.Saga.Cleanup.Interval     → SAGA_SAGA_CLEANUP_INTERVAL
+  # Spring Boot vars (JAVA_TOOL_OPTIONS, SPRING_PROFILES_ACTIVE, RABBITMQ_HOST, etc.)
+  # are intentionally omitted — the Go binary does not use them.
   saga-orchestrator-service:
     build:
       context: ..
       dockerfile: saga-orchestrator-service/Dockerfile
-      args:
-        SERVER_PORT: ${SAGA_SERVER_PORT:-8095}
     container_name: saga-orchestrator-service
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      SAGA_SERVICE_HOST: 0.0.0.0
-      SAGA_SERVICE_PORT: ${SAGA_SERVER_PORT:-8095}
-      SERVER_PORT: ${SAGA_SERVER_PORT:-8095}
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: ${SAGA_POSTGRES_DB:-saga_db}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
-      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
-      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
-      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: otlp
-      OTEL_LOGS_EXPORTER: none
-      OTEL_SERVICE_NAME: saga-orchestrator-service
-      <<: *jvm-tuning
+      # --- Database (Goose runs migrations on startup) ---
+      SAGA_DB_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${SAGA_POSTGRES_DB:-saga_db}?sslmode=disable"
+      SAGA_DB_MAX_CONNS: "${SAGA_DB_MAX_CONNS:-10}"
+      SAGA_DB_MIN_CONNS: "${SAGA_DB_MIN_CONNS:-2}"
+      # --- Migrations path (absolute; matches /migrations in the Docker image) ---
+      SAGA_SERVER_MIGRATIONS_PATH: "/migrations"
+      # --- HTTP server ---
+      SAGA_SERVER_HTTP_PORT: "${SAGA_SERVER_PORT:-8095}"
+      SAGA_SERVER_LOG_LEVEL: "${SAGA_LOG_LEVEL:-info}"
+      SAGA_SERVER_LOG_JSON: "true"
+      # --- JWT (S2S issuance only — saga-orchestrator is not a user-facing service) ---
+      SAGA_JWT_SECRET: "${JWT_SECRET}"
+      SAGA_JWT_ISSUER: "${SAGA_JWT_ISSUER:-banka1}"
+      # --- Profile (controls prod-secret strictness in config.Load) ---
+      SAGA_PROFILE: "${SAGA_PROFILE:-dev}"
+      # --- RabbitMQ broker URL (double-prefix: Config.Saga.RabbitMQURL) ---
+      SAGA_SAGA_RABBITMQ_URL: "amqp://${RABBITMQ_USERNAME:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:${RABBITMQ_PORT:-5672}/"
+      # --- Downstream Java service URLs (double-prefix: Config.Saga.Services.*) ---
+      SAGA_SAGA_SERVICES_BANKING_CORE_URL: "http://banking-core-service:${BANKING_CORE_SERVICE_PORT:-8084}"
+      SAGA_SAGA_SERVICES_TRADING_URL: "http://trading-service:${TRADING_SERVICE_PORT:-8088}"
+      SAGA_SAGA_SERVICES_MARKET_URL: "http://market-service:${MARKET_SERVICE_PORT:-8085}"
+      SAGA_SAGA_SERVICES_TIMEOUT: "${SAGA_SERVICES_TIMEOUT:-30s}"
+      # --- Cleanup scheduler (double-prefix: Config.Saga.Cleanup.*) ---
+      SAGA_SAGA_CLEANUP_INTERVAL: "${SAGA_CLEANUP_INTERVAL:-15m}"
+      SAGA_SAGA_CLEANUP_STUCK_CUTOFF: "${SAGA_STUCK_CUTOFF:-1h}"
+      SAGA_SAGA_CLEANUP_IDEMPOTENCY_RETENTION: "${SAGA_IDEMPOTENCY_RETENTION:-336h}"
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
+      banking-core-service: { condition: service_healthy }
+      trading-service: { condition: service_healthy }
+      market-service: { condition: service_healthy }
       otel-collector: { condition: service_started }
     expose:
       - "${SAGA_SERVER_PORT:-8095}"
     networks:
       - banka-network
-    volumes:
-      - saga-orchestrator-service-logs:/var/log/banka
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:${SAGA_SERVER_PORT:-8095}/actuator/health/liveness || exit 1"]
-      interval: 15s
-      timeout: 5s
+      # Alpine image provides wget; /health is served by api.NewRouter.
+      # NOTE: --spider sends HEAD which chi router doesn't auto-route to GET handler.
+      # Use full GET via -O- and discard output instead.
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --timeout=3 -O- http://localhost:${SAGA_SERVER_PORT:-8095}/health > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
       retries: 10
       start_period: 30s
-    deploy: *app-resource-limits
+    # Go binary is ~20 MB static + alpine runtime; 128 MB is generous headroom.
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
 
-  # 8/8. Interbank Service (samostalan, inter-bank routing; PR_32)
+  # 8/8. Interbank Service — Go rewrite (Task 23; replaces Java/Spring Boot build).
+  # Build context is the workspace root (Banka-1-Backend-go/) so that the
+  # go.work workspace and all local modules (interbank-service/, shared/, proto/)
+  # are available to the multi-stage Dockerfile.
+  # Env vars use the INTERBANK_* prefix consumed by shared/config.Load.
+  # Spring Boot vars (JAVA_TOOL_OPTIONS, SPRING_PROFILES_ACTIVE, SWAGGER_ENABLED,
+  # LIQUIBASE_CONTEXTS, RABBITMQ_*, LOGGING_FILE_PATH) are intentionally omitted —
+  # the Go binary does not use them.
   interbank-service:
     build:
       context: ..
       dockerfile: interbank-service/Dockerfile
-      args:
-        SERVER_PORT: ${INTERBANK_SERVER_PORT:-8091}
     container_name: banka_interbank_service
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      SERVER_PORT: ${INTERBANK_SERVER_PORT:-8091}
-      INTERBANK_DB_HOST: postgres
-      INTERBANK_DB_PORT: 5432
-      INTERBANK_DB_NAME: ${INTERBANK_DB_NAME:-interbank_service}
-      INTERBANK_DB_USER: ${INTERBANK_DB_USER:-postgres}
-      INTERBANK_DB_PASSWORD: ${INTERBANK_DB_PASSWORD:-postgres}
-      JWT_SECRET: ${JWT_SECRET}
-      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
-      LIQUIBASE_CONTEXTS: ${LIQUIBASE_CONTEXTS:-dev}
-      BANKA1_ROUTING_NUMBER: ${BANKA1_ROUTING_NUMBER:-111}
-      BANKA1_DISPLAY_NAME: ${BANKA1_DISPLAY_NAME:-Banka 1}
-      BANKA2_ROUTING_NUMBER: ${BANKA2_ROUTING_NUMBER:-222}
-      BANKA2_DISPLAY_NAME: ${BANKA2_DISPLAY_NAME:-Banka 2}
-      BANKA2_BASE_URL: ${BANKA2_BASE_URL:-http://interbank-service:8091/_mock/banka2/}
-      BANKA2_INBOUND_TOKEN: ${BANKA2_INBOUND_TOKEN:-dev-inbound-banka2-to-banka1}
-      BANKA2_OUTBOUND_TOKEN: ${BANKA2_OUTBOUND_TOKEN:-dev-outbound-banka1-to-banka2}
-      SERVICES_USER_URL: http://user-service:${USER_SERVICE_PORT:-8081}
-      SERVICES_BANKING_CORE_URL: http://banking-core-service:${BANKING_CORE_SERVICE_PORT:-8084}
-      SERVICES_TRADING_URL: http://trading-service:${TRADING_SERVICE_PORT:-8088}
-      SPRING_PROFILES_ACTIVE: ${INTERBANK_SPRING_PROFILES:-dev}
-      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
-      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
-      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
-      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: otlp
-      OTEL_LOGS_EXPORTER: none
-      OTEL_SERVICE_NAME: interbank-service
-      LOGGING_FILE_PATH: /var/log/banka
-      <<: *jvm-tuning
+      # --- Database (Goose runs migrations on startup) ---
+      INTERBANK_DB_URL: "postgres://${INTERBANK_DB_USER:-postgres}:${INTERBANK_DB_PASSWORD:-postgres}@postgres:5432/${INTERBANK_DB_NAME:-interbank_service}?sslmode=disable"
+      INTERBANK_DB_MAX_CONNS: "${INTERBANK_DB_MAX_CONNS:-10}"
+      INTERBANK_DB_MIN_CONNS: "${INTERBANK_DB_MIN_CONNS:-2}"
+      # --- Migrations path (absolute; matches /migrations in the Docker image) ---
+      INTERBANK_SERVER_MIGRATIONS_PATH: "/migrations"
+      # --- HTTP server ---
+      INTERBANK_SERVER_HTTP_PORT: "${INTERBANK_SERVER_PORT:-8091}"
+      INTERBANK_SERVER_LOG_LEVEL: "${INTERBANK_LOG_LEVEL:-info}"
+      INTERBANK_SERVER_LOG_JSON: "true"
+      # --- JWT (S2S issuance + FE token verification) ---
+      INTERBANK_JWT_SECRET: "${JWT_SECRET}"
+      INTERBANK_JWT_ISSUER: "${INTERBANK_JWT_ISSUER:-banka1}"
+      # --- Profile (controls partner-token strictness in config.Load) ---
+      INTERBANK_PROFILE: "${INTERBANK_PROFILE:-dev}"
+      # --- Our bank identity ---
+      # NOTE: envconfig nests sub-struct fields under their parent name, so
+      # Config.Interbank.X reads from INTERBANK_INTERBANK_X (double prefix).
+      INTERBANK_INTERBANK_MY_ROUTING_NUMBER: "${BANKA1_ROUTING_NUMBER:-111}"
+      INTERBANK_INTERBANK_MY_BANK_DISPLAY_NAME: "${BANKA1_DISPLAY_NAME:-Banka 1}"
+      # --- Partner bank (Banka 2) — JSON form fallback. envconfig slice-of-struct
+      # binding (`INTERBANK_INTERBANK_PARTNERS_0_*`) ne radi za []Partner pa
+      # config.Load() konzumira INTERBANK_PARTNERS_JSON kao single-string array.
+      INTERBANK_PARTNERS_JSON: '[{"Routing":${BANKA2_ROUTING_NUMBER:-222},"DisplayName":"${BANKA2_DISPLAY_NAME:-Banka 2}","BaseURL":"${BANKA2_BASE_URL:-http://interbank-service:8091/_mock/banka2/}","InboundToken":"${BANKA2_INBOUND_TOKEN:-dev-inbound-banka2-to-banka1}","OutboundToken":"${BANKA2_OUTBOUND_TOKEN:-dev-outbound-banka1-to-banka2}"}]'
+      # --- Mock partner (in-process Banka 2 simulator; enable for dev/e2e) ---
+      INTERBANK_INTERBANK_MOCK_PARTNER_ENABLED: "${INTERBANK_MOCK_PARTNER_ENABLED:-false}"
+      # --- Downstream Java service URLs ---
+      INTERBANK_INTERBANK_SERVICES_BANKING_CORE_URL: "http://banking-core-service:${BANKING_CORE_SERVICE_PORT:-8084}"
+      INTERBANK_INTERBANK_SERVICES_TRADING_URL: "http://trading-service:${TRADING_SERVICE_PORT:-8088}"
+      INTERBANK_INTERBANK_SERVICES_USER_URL: "http://user-service:${USER_SERVICE_PORT:-8081}"
+      INTERBANK_INTERBANK_SERVICES_TIMEOUT: "${INTERBANK_SERVICES_TIMEOUT:-5s}"
+      # --- Outbound HTTP client (accept can block up to 60 s) ---
+      INTERBANK_INTERBANK_OUTBOUND_TIMEOUT: "${INTERBANK_OUTBOUND_TIMEOUT:-60s}"
+      # --- Retry scheduler ---
+      INTERBANK_INTERBANK_RETRY_INTERVAL: "${INTERBANK_RETRY_INTERVAL:-2m}"
+      INTERBANK_INTERBANK_RETRY_MAX_RETRIES: "${INTERBANK_RETRY_MAX_RETRIES:-5}"
     depends_on:
       postgres: { condition: service_healthy }
-      rabbitmq: { condition: service_healthy }
       banking-core-service: { condition: service_healthy }
       trading-service: { condition: service_healthy }
       user-service: { condition: service_healthy }
@@ -765,15 +807,22 @@ services:
       - "${INTERBANK_SERVER_PORT:-8091}"
     networks:
       - banka-network
-    volumes:
-      - interbank-service-logs:/var/log/banka
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:${INTERBANK_SERVER_PORT:-8091}/actuator/health/liveness || exit 1"]
-      interval: 15s
-      timeout: 5s
+      # Alpine image provides wget; /health is served by api.NewRouter.
+      # NOTE: --spider sends HEAD which chi router doesn't auto-route to GET handler.
+      # Use full GET via -O- and discard output instead.
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --timeout=3 -O- http://localhost:${INTERBANK_SERVER_PORT:-8091}/health > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
       retries: 10
       start_period: 30s
-    deploy: *app-resource-limits
+    # Go binary is ~15 MB static + alpine runtime; 128 MB is generous headroom.
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
 
   # =========================================================================
   # API Gateway (Nginx) — depends on svih 8 servisa

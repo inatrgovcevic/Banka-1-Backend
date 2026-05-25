@@ -1,86 +1,103 @@
 # saga-orchestrator-service
 
-SAGA pattern orchestrator za distribuirane transakcije u Banka-1 stack-u. Centralizuje OTC kupoprodaju i fondovsku kupovinu/likvidaciju hartija — koraci koji ostaju u različitim servisima posle banking-konsolidacije (#210/#211).
+Go port of the Banka 1 saga orchestrator service (originally Spring Boot / Java 21).
+Handles distributed transaction coordination across `banking-core-service`,
+`trading-service`, and `market-service` using the SAGA pattern with LIFO compensation.
 
-GH issues iz koje ovaj servis raste: **#213** (infrastruktura), **#214** (SagaInstance + state machine), **#215** (RabbitMQ topologija).
+GH issues: **#213** (infrastructure), **#214** (SagaInstance + state machine), **#215** (RabbitMQ topology).
 
-## Šta orkestrira
+## Sagas implemented
 
-Po **DoD #213** i konsolidaciji iz `banking-service`:
+| Saga | Trigger queue | Steps | Notes |
+|---|---|---|---|
+| **OtcExerciseSaga** | `saga.otc.exercise.queue` | 5 | ReserveFunds → ReserveStocks → Transfer → TransferOwnership → Consistency check; full LIFO compensation |
+| **OtcPremiumTransferSaga** | `saga.otc.premium.queue` | 1 | InternalTransfer (USD→RSD via market-service) |
+| **FundSubscribeSaga** | `saga.fund.subscribe.queue` | 1 | InternalTransfer client→fund account |
+| **FundRedeemSaga** | `saga.fund.redeem.queue` | 1 | InternalTransfer fund→client account (liquid funds) |
+| **FundRedeemWithLiquidationSaga** | `saga.fund.redeem.with-liquidation.queue` | 2 | LiquidateForFund → InternalTransfer |
 
-| SAGA tip | Koraci (ukratko) |
-|---|---|
-| `OTC_EXERCISE` | rezervacija sredstava (banking) → transfer hartija (order) → naplata (banking) |
-| `FUND_LIQUIDATION_FOR_REDEMPTION` | likvidacija pozicija fonda (order) → transfer sredstava klijentu (banking) |
+## Architecture
 
-OTC SAGA je posle konsolidacije svedena sa 5 servisa na 2 (`banking` i `order`); SAGA i dalje postoji jer transfer hartija i naplata sredstava ostaju u različitim servisima.
+```
+RabbitMQ                    saga-orchestrator-service
+  saga.otc.exercise.queue  ──►  OtcExerciseSaga handler
+  saga.otc.premium.queue   ──►  OtcPremiumTransferSaga handler
+  saga.fund.subscribe.queue──►  FundSubscribeSaga handler
+  saga.fund.redeem.queue   ──►  FundRedeemSaga handler
+  saga.fund.redeem.with-   ──►  FundRedeemWithLiquidationSaga handler
+    liquidation.queue
 
-## Tehnologije
+  ◄── saga.exchange (result events published back)
 
-- Spring Boot 4.0.x + Java 21
-- PostgreSQL (`saga_db` schema, Flyway migracije)
-- RabbitMQ (Topic exchange `saga.exchange`, queues `saga.cmd.{banking,order,otc,fund}` + `saga.events` + `saga.dlq`)
-- OpenAPI (`/v3/api-docs`, Swagger UI na `/swagger-ui/index.html`, statični `docs/openapi.yml`)
-- Spring Actuator za infra health (`/actuator/health/liveness`)
+Postgres (saga_db)
+  saga_instance — optimistic-locked state for each running saga
 
-## Endpointi
-
-- `GET /saga/health` — domain liveness (api-gateway probe; ne treba auth)
-- `GET /saga/instances` — admin listing (Issue #214 implementacija)
-- `GET /saga/instances/{id}` — detalj jedne instance
-- `GET /actuator/health` — Spring Actuator (DB + Rabbit)
-- `GET /v3/api-docs` — OpenAPI JSON
-- `GET /swagger-ui/index.html` — Swagger UI
-
-Sve admin/internal rute idu kroz api-gateway `/saga/*` lokaciju.
-
-## Lokalno pokretanje
-
-Iz root-a `Banka-1-Backend-main`:
-
-```bash
-docker compose -f setup/docker-compose.yml up -d --build saga-orchestrator-service
+Admin HTTP (port 8095)
+  GET /health
+  GET /saga/instances?state=&limit=&offset=
+  GET /saga/instances/{id}
 ```
 
-Servis sluša na portu **8095** (env `SAGA_SERVER_PORT`).
+## Configuration
 
-Standalone (bez ostatka stack-a, samo za servis dev):
+All env vars use the `SAGA_` prefix. Nested struct fields are **double-prefixed**
+by `kelseyhightower/envconfig` (e.g. `Config.Saga.RabbitMQURL` → `SAGA_SAGA_RABBITMQ_URL`).
 
-```bash
-cd saga-orchestrator-service
-docker compose up -d
-```
-
-Pretpostavka: postgres + rabbitmq kontejneri iz root stack-a su već pokrenuti i `banka-network` postoji.
-
-## Health check
-
-```bash
-curl http://localhost/saga/health
-# {"status":"UP","service":"saga-orchestrator-service"}
-
-curl http://localhost:8095/actuator/health/liveness
-# {"status":"UP"}
-```
-
-## Konfiguracija
-
-Sve env varijable imaju default vrednosti — vidi [src/main/resources/application.properties](src/main/resources/application.properties).
-
-Ključne:
-
-| Var | Default | Opis |
+| Env var | Default | Description |
 |---|---|---|
-| `SAGA_SERVER_PORT` | `8095` | HTTP port |
-| `POSTGRES_DB` | `saga_db` | DB ime |
-| `SAGA_EXCHANGE` | `saga.exchange` | Topic exchange |
-| `SAGA_DLQ` | `saga.dlq` | Dead-letter queue |
-| `SAGA_RETRY_MAX_ATTEMPTS` | `5` | Retry pokušaja po koraku |
+| `SAGA_DB_URL` | **required** | Postgres DSN |
+| `SAGA_JWT_SECRET` | **required** | HS256 secret for S2S token issuance |
+| `SAGA_SERVER_HTTP_PORT` | `8095` | Admin HTTP port |
+| `SAGA_SERVER_MIGRATIONS_PATH` | `/migrations` | Goose SQL dir |
+| `SAGA_SERVER_LOG_LEVEL` | `info` | Log level (debug/info/warn/error) |
+| `SAGA_SERVER_LOG_JSON` | `true` | JSON vs text log format |
+| `SAGA_JWT_ISSUER` | `banka1` | JWT issuer claim |
+| `SAGA_PROFILE` | `prod` | `dev`/`test` relaxes secret validation |
+| `SAGA_SAGA_RABBITMQ_URL` | `amqp://guest:guest@rabbitmq:5672/` | Broker URL |
+| `SAGA_SAGA_SERVICES_BANKING_CORE_URL` | `http://banking-core-service:8084` | |
+| `SAGA_SAGA_SERVICES_TRADING_URL` | `http://trading-service:8088` | |
+| `SAGA_SAGA_SERVICES_MARKET_URL` | `http://market-service:8085` | |
+| `SAGA_SAGA_SERVICES_TIMEOUT` | `30s` | REST call timeout |
+| `SAGA_SAGA_CLEANUP_INTERVAL` | `15m` | Cleanup tick interval |
+| `SAGA_SAGA_CLEANUP_STUCK_CUTOFF` | `1h` | Age above which IN_PROGRESS/COMPENSATING are stuck |
+| `SAGA_SAGA_CLEANUP_IDEMPOTENCY_RETENTION` | `336h` | 14-day idempotency-log retention |
 
-## Roadmap
+## Building
 
-- **#213** (ovaj PR): infrastruktura + health + OpenAPI + skelet
-- **#214**: `SagaInstance` entitet, `SagaStep` interface, `SagaOrchestrator` state machine
-- **#215**: `RabbitConfig` sa exchange-om, queue-ovima, DLQ
-- **#220**: prva real SAGA — OTC "Iskoristi opciju" flow
-- **#231**: druga SAGA — strategija likvidacije hartija pri velikim isplatama iz fonda
+From the workspace root (`Banka-1-Backend-go/`):
+
+```sh
+# Local binary
+cd saga-orchestrator-service
+go build ./cmd/saga-orchestrator-service
+
+# Docker image (build context = workspace root)
+docker build -f saga-orchestrator-service/Dockerfile \
+             -t banka1-saga-orchestrator-service:go .
+```
+
+## Running tests
+
+```sh
+cd saga-orchestrator-service
+go test ./internal/... -v -count=1
+go vet ./...
+```
+
+DB integration tests (`internal/store/`) are skipped unless `SAGA_DB_URL` is set.
+
+## Notable Java to Go fixes
+
+| Issue | Fix |
+|---|---|
+| Java published to `saga.events` queue name as exchange (routing bug) | Go uses `saga.exchange` topic exchange + routing key binding |
+| `MarketServiceClient` had dead stock reservation methods (wrong service) | Removed; only `ConvertCurrencyNoCommission` retained |
+| Java retry config properties were declared but never wired to the scheduler | Go `CleanupConfig` is fully consumed from env |
+| No stuck-saga detection in Java | Go `scheduler.Scheduler` sweeps sagas older than `STUCK_CUTOFF` |
+| `saga_idempotency_log` cleanup crashed if table missing | Go catches SQLSTATE 42P01 gracefully and logs once |
+
+## Deferred
+
+- Live RabbitMQ + Java cohort integration tests (requires running broker + Java services)
+- Prometheus metrics exporter (currently using slog WARN + in-process counter)
+- Mutual TLS for S2S calls

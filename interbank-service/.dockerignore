@@ -1,0 +1,39 @@
+# Java / Gradle artifacts (this Go service lives inside a Java monorepo)
+src/main/java/
+src/main/resources/
+src/test/
+build/
+.gradle/
+target/
+*.iml
+**/build.gradle*
+**/settings.gradle*
+gradlew
+gradlew.bat
+
+# Go build cache / local test output
+**/*_test.go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# VCS
+.git/
+.github/
+.gitignore
+.gitattributes
+
+# Docs (not needed in the image)
+README.md
+*.md
+docs/

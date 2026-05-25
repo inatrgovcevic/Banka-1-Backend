@@ -1,0 +1,203 @@
+syntax = "proto3";
+package banka1.interbank.v1;
+
+import "banka1/common/v1/types.proto";
+
+option go_package = "github.com/raf-si-2025/banka-1-go/proto/banka1/interbank/v1;interbankv1";
+
+// InterbankProtocolService mirrors the HTTP REST API surface exposed to the partner bank
+// (POST /interbank for 2PC, and 7 OTC §3 routes). It is also consumed Go-to-Go by
+// other cohort services that need synchronous RPC into the interbank-service.
+service InterbankProtocolService {
+    rpc PostMessage(PostMessageRequest) returns (PostMessageResponse);
+    rpc CreateNegotiation(CreateNegotiationRequest) returns (CreateNegotiationResponse);
+    rpc PutCounter(PutCounterRequest) returns (PutCounterResponse);
+    rpc GetNegotiation(GetNegotiationRequest) returns (GetNegotiationResponse);
+    rpc DeleteNegotiation(DeleteNegotiationRequest) returns (DeleteNegotiationResponse);
+    rpc AcceptNegotiation(AcceptNegotiationRequest) returns (AcceptNegotiationResponse);
+    rpc GetPublicStock(GetPublicStockRequest) returns (GetPublicStockResponse);
+    rpc GetUserDisplay(GetUserDisplayRequest) returns (GetUserDisplayResponse);
+}
+
+// MessageType corresponds to InterbankMessagePayload.messageType on the wire.
+enum MessageType {
+    MESSAGE_TYPE_UNSPECIFIED = 0;
+    MESSAGE_TYPE_NEW_TX = 1;
+    MESSAGE_TYPE_COMMIT_TX = 2;
+    MESSAGE_TYPE_ROLLBACK_TX = 3;
+}
+
+// Asset is the polymorphic asset reference. The Java JSON form is nested
+// ({"type":"MONAS","asset":{...}}). The gRPC form uses oneof for the same effect.
+message Asset {
+    oneof body {
+        banka1.common.v1.MonetaryValue monas = 1;
+        banka1.common.v1.StockDescription stock = 2;
+        banka1.common.v1.OptionDescription option = 3;
+    }
+}
+
+// TxAccount is the polymorphic account reference.
+message TxAccount {
+    oneof body {
+        banka1.common.v1.ForeignBankId person = 1;
+        string account_num = 2;          // 18-digit account number for type=ACCOUNT
+        banka1.common.v1.ForeignBankId option = 3;
+    }
+}
+
+message Posting {
+    TxAccount account = 1;
+    string amount = 2;  // BigDecimal as plain string (matches Java WRITE_BIGDECIMAL_AS_PLAIN)
+    Asset asset = 3;
+}
+
+message InterbankTransactionPayload {
+    banka1.common.v1.ForeignBankId transaction_id = 1;
+    repeated Posting postings = 2;
+    string message = 3;
+    string call_number = 4;
+    string payment_code = 5;
+    string payment_purpose = 6;
+}
+
+message CommitTransactionBody {
+    banka1.common.v1.ForeignBankId transaction_id = 1;
+}
+
+message RollbackTransactionBody {
+    banka1.common.v1.ForeignBankId transaction_id = 1;
+}
+
+message PostMessageRequest {
+    banka1.common.v1.IdempotenceKey idempotence_key = 1;
+    MessageType type = 2;
+    oneof body {
+        InterbankTransactionPayload new_tx = 3;
+        CommitTransactionBody commit_tx = 4;
+        RollbackTransactionBody rollback_tx = 5;
+    }
+}
+
+message TransactionVote {
+    Vote vote = 1;
+    repeated NoVoteReason reasons = 2;
+
+    enum Vote {
+        VOTE_UNSPECIFIED = 0;
+        VOTE_YES = 1;
+        VOTE_NO = 2;
+    }
+}
+
+message NoVoteReason {
+    Reason reason = 1;
+    Posting posting = 2;  // optional — omitted when reason is global (e.g. UNBALANCED_TX)
+
+    enum Reason {
+        REASON_UNSPECIFIED = 0;
+        REASON_UNBALANCED_TX = 1;
+        REASON_NO_SUCH_ACCOUNT = 2;
+        REASON_NO_SUCH_ASSET = 3;
+        REASON_UNACCEPTABLE_ASSET = 4;
+        REASON_INSUFFICIENT_ASSET = 5;
+        REASON_OPTION_AMOUNT_INCORRECT = 6;
+        REASON_OPTION_USED_OR_EXPIRED = 7;
+        REASON_OPTION_NEGOTIATION_NOT_FOUND = 8;
+    }
+}
+
+message PostMessageResponse {
+    int32 http_status_code = 1;  // mirrors HTTP behavior: 200 with body for NEW_TX, 204 for COMMIT/ROLLBACK
+    TransactionVote vote = 2;    // populated for NEW_TX only
+}
+
+// OTC §3 message types
+message CreateNegotiationRequest {
+    banka1.common.v1.ForeignBankId id = 1;
+    banka1.common.v1.ForeignBankId buyer_id = 2;
+    banka1.common.v1.ForeignBankId seller_id = 3;
+    banka1.common.v1.ForeignBankId last_modified_by = 4;
+    banka1.common.v1.StockDescription stock_description = 5;
+    banka1.common.v1.MonetaryValue price_per_unit = 6;
+    int32 amount = 7;
+    string settlement_date = 8;  // RFC3339 UTC string (Java parity — not Timestamp)
+    banka1.common.v1.MonetaryValue premium = 9;
+}
+
+message CreateNegotiationResponse {
+    banka1.common.v1.ForeignBankId id = 1;
+}
+
+message PutCounterRequest {
+    int32 routing_number = 1;  // path: /negotiations/{routing_number}/{id}
+    string id = 2;
+    banka1.common.v1.ForeignBankId buyer_id = 3;
+    banka1.common.v1.ForeignBankId seller_id = 4;
+    banka1.common.v1.ForeignBankId last_modified_by = 5;
+    banka1.common.v1.StockDescription stock_description = 6;
+    banka1.common.v1.MonetaryValue price_per_unit = 7;
+    int32 amount = 8;
+    string settlement_date = 9;
+    banka1.common.v1.MonetaryValue premium = 10;
+}
+
+message PutCounterResponse {}
+
+message GetNegotiationRequest {
+    int32 routing_number = 1;
+    string id = 2;
+}
+
+message GetNegotiationResponse {
+    Negotiation negotiation = 1;
+}
+
+message Negotiation {
+    banka1.common.v1.ForeignBankId id = 1;
+    banka1.common.v1.ForeignBankId buyer_id = 2;
+    banka1.common.v1.ForeignBankId seller_id = 3;
+    banka1.common.v1.ForeignBankId last_modified_by = 4;
+    banka1.common.v1.StockDescription stock_description = 5;
+    banka1.common.v1.MonetaryValue price_per_unit = 6;
+    int32 amount = 7;
+    string settlement_date = 8;
+    banka1.common.v1.MonetaryValue premium = 9;
+    bool is_ongoing = 10;
+}
+
+message DeleteNegotiationRequest {
+    int32 routing_number = 1;
+    string id = 2;
+}
+
+message DeleteNegotiationResponse {}
+
+message AcceptNegotiationRequest {
+    int32 routing_number = 1;
+    string id = 2;
+}
+
+message AcceptNegotiationResponse {}
+
+message GetPublicStockRequest {}
+
+message GetPublicStockResponse {
+    repeated PublicStockEntry entries = 1;
+}
+
+message PublicStockEntry {
+    string ticker = 1;
+    repeated banka1.common.v1.ForeignBankId sellers = 2;
+    int32 quantity = 3;
+}
+
+message GetUserDisplayRequest {
+    int32 routing_number = 1;
+    string id = 2;
+}
+
+message GetUserDisplayResponse {
+    string bank_display_name = 1;
+    string display_name = 2;
+}

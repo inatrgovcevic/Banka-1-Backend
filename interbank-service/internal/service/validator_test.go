@@ -1,0 +1,594 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/shopspring/decimal"
+
+	"github.com/raf-si-2025/banka-1-go/interbank-service/internal/protocol"
+)
+
+// ---------------------------------------------------------------------------
+// Fakes
+// ---------------------------------------------------------------------------
+
+type fakeAccountInfo struct {
+	OwnerType        string
+	OwnerID          int64
+	Currency         string
+	AvailableBalance decimal.Decimal
+}
+
+type fakeBC struct {
+	byNum           map[string]fakeAccountInfo
+	byOwnerCurrency map[string]string // key "ownerID:currency" → account num
+}
+
+func (f *fakeBC) ResolveAccount(_ context.Context, num string) (*AccountInfo, error) {
+	a, ok := f.byNum[num]
+	if !ok {
+		return nil, ErrAccountNotFound
+	}
+	return &AccountInfo{
+		OwnerType:        a.OwnerType,
+		OwnerID:          a.OwnerID,
+		Currency:         a.Currency,
+		AvailableBalance: a.AvailableBalance,
+	}, nil
+}
+
+func (f *fakeBC) FindAccountByOwnerAndCurrency(_ context.Context, ownerID int64, currency string) (string, error) {
+	key := fmt.Sprintf("%d:%s", ownerID, currency)
+	num, ok := f.byOwnerCurrency[key]
+	if !ok {
+		return "", ErrAccountNotFound
+	}
+	return num, nil
+}
+
+type fakeNegInfo struct {
+	isOngoing    bool
+	settlement   time.Time
+	amount       int
+	pricePerUnit decimal.Decimal
+}
+
+type fakeTD struct {
+	negs map[string]fakeNegInfo
+}
+
+func (f *fakeTD) FindNegotiation(_ context.Context, id protocol.ForeignBankId) (*NegotiationLite, error) {
+	key := fmt.Sprintf("%d:%s", id.RoutingNumber, id.Id)
+	n, ok := f.negs[key]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	return &NegotiationLite{
+		IsOngoing:      n.isOngoing,
+		SettlementDate: n.settlement,
+		Amount:         n.amount,
+		PricePerUnit:   n.pricePerUnit,
+	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+func mkRealAccountMonas(num string, amt decimal.Decimal, currency string) protocol.Posting {
+	return protocol.Posting{
+		Account: &protocol.RealAccount{Num: num},
+		Amount:  amt,
+		Asset:   &protocol.MonasAsset{Currency: currency},
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BalanceCheck tests
+// ---------------------------------------------------------------------------
+
+func TestBalanceCheck_Balanced(t *testing.T) {
+	v := NewValidator(111, nil, nil, nil)
+	postings := []protocol.Posting{
+		mkRealAccountMonas("222000000000000001", decimal.NewFromInt(-100), "USD"),
+		mkRealAccountMonas("111000000000000001", decimal.NewFromInt(100), "USD"),
+	}
+	if reasons := v.BalanceCheck(postings); len(reasons) != 0 {
+		t.Errorf("expected balanced, got reasons=%+v", reasons)
+	}
+}
+
+func TestBalanceCheck_Unbalanced(t *testing.T) {
+	v := NewValidator(111, nil, nil, nil)
+	postings := []protocol.Posting{
+		mkRealAccountMonas("222000000000000001", decimal.NewFromInt(-100), "USD"),
+		mkRealAccountMonas("111000000000000001", decimal.NewFromInt(99), "USD"),
+	}
+	reasons := v.BalanceCheck(postings)
+	if len(reasons) != 1 {
+		t.Fatalf("expected 1 reason, got %d: %+v", len(reasons), reasons)
+	}
+	if reasons[0].Reason != protocol.ReasonUnbalancedTx {
+		t.Errorf("expected UNBALANCED_TX, got %q", reasons[0].Reason)
+	}
+}
+
+func TestBalanceCheck_MultiAsset_Balanced(t *testing.T) {
+	v := NewValidator(111, nil, nil, nil)
+	postings := []protocol.Posting{
+		mkRealAccountMonas("222000000000000001", decimal.NewFromInt(-100), "USD"),
+		mkRealAccountMonas("111000000000000001", decimal.NewFromInt(100), "USD"),
+		{
+			Account: &protocol.RealAccount{Num: "222000000000000002"},
+			Amount:  decimal.NewFromInt(-5),
+			Asset:   &protocol.StockAsset{Ticker: "AAPL"},
+		},
+		{
+			Account: &protocol.RealAccount{Num: "111000000000000002"},
+			Amount:  decimal.NewFromInt(5),
+			Asset:   &protocol.StockAsset{Ticker: "AAPL"},
+		},
+	}
+	if reasons := v.BalanceCheck(postings); len(reasons) != 0 {
+		t.Errorf("expected balanced, got reasons=%+v", reasons)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ValidatePosting — partner side (should be skipped)
+// ---------------------------------------------------------------------------
+
+func TestValidatePosting_PartnerAccount_Skipped(t *testing.T) {
+	v := NewValidator(111, nil, nil, nil)
+	// Account prefix 222 = partner, not ours
+	p := mkRealAccountMonas("222000000000000001", decimal.NewFromInt(-100), "USD")
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r != nil {
+		t.Errorf("expected nil reason for partner account, got %+v", r)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ValidatePosting — NO_SUCH_ACCOUNT
+// ---------------------------------------------------------------------------
+
+func TestValidatePosting_NoSuchAccount(t *testing.T) {
+	bc := &fakeBC{byNum: map[string]fakeAccountInfo{}}
+	v := NewValidator(111, nil, bc, nil)
+	p := mkRealAccountMonas("111000000000000099", decimal.NewFromInt(-100), "USD")
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r == nil || r.Reason != protocol.ReasonNoSuchAccount {
+		t.Errorf("expected NO_SUCH_ACCOUNT, got %+v", r)
+	}
+}
+
+func TestValidatePosting_PersonAccount_NoSuchAccount(t *testing.T) {
+	bc := &fakeBC{
+		byNum:           map[string]fakeAccountInfo{},
+		byOwnerCurrency: map[string]string{},
+	}
+	v := NewValidator(111, nil, bc, nil)
+	p := protocol.Posting{
+		Account: &protocol.PersonAccount{Id: protocol.ForeignBankId{RoutingNumber: 111, Id: "C-7"}},
+		Amount:  decimal.NewFromInt(-50),
+		Asset:   &protocol.MonasAsset{Currency: "USD"},
+	}
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r == nil || r.Reason != protocol.ReasonNoSuchAccount {
+		t.Errorf("expected NO_SUCH_ACCOUNT for unknown person, got %+v", r)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ValidatePosting — NO_SUCH_ASSET (currency mismatch)
+// ---------------------------------------------------------------------------
+
+func TestValidatePosting_NoSuchAsset_CurrencyMismatch(t *testing.T) {
+	bc := &fakeBC{
+		byNum: map[string]fakeAccountInfo{
+			"111000000000000001": {Currency: "EUR", AvailableBalance: decimal.NewFromInt(1000)},
+		},
+	}
+	v := NewValidator(111, nil, bc, nil)
+	// Posting in USD but the account is denominated in EUR
+	p := mkRealAccountMonas("111000000000000001", decimal.NewFromInt(-100), "USD")
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r == nil || r.Reason != protocol.ReasonNoSuchAsset {
+		t.Errorf("expected NO_SUCH_ASSET, got %+v", r)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ValidatePosting — INSUFFICIENT_ASSET
+// ---------------------------------------------------------------------------
+
+func TestValidatePosting_InsufficientAsset(t *testing.T) {
+	bc := &fakeBC{
+		byNum: map[string]fakeAccountInfo{
+			"111000000000000001": {Currency: "USD", AvailableBalance: decimal.NewFromInt(50)},
+		},
+	}
+	v := NewValidator(111, nil, bc, nil)
+	p := mkRealAccountMonas("111000000000000001", decimal.NewFromInt(-100), "USD")
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r == nil || r.Reason != protocol.ReasonInsufficientAsset {
+		t.Errorf("expected INSUFFICIENT_ASSET, got %+v", r)
+	}
+}
+
+func TestValidatePosting_SufficientAsset_OK(t *testing.T) {
+	bc := &fakeBC{
+		byNum: map[string]fakeAccountInfo{
+			"111000000000000001": {Currency: "USD", AvailableBalance: decimal.NewFromInt(200)},
+		},
+	}
+	v := NewValidator(111, nil, bc, nil)
+	p := mkRealAccountMonas("111000000000000001", decimal.NewFromInt(-100), "USD")
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r != nil {
+		t.Errorf("expected nil reason (valid posting), got %+v", r)
+	}
+}
+
+func TestValidatePosting_CreditPosting_NotChecked(t *testing.T) {
+	// Positive (credit) postings don't trigger INSUFFICIENT_ASSET even if balance is 0.
+	bc := &fakeBC{
+		byNum: map[string]fakeAccountInfo{
+			"111000000000000001": {Currency: "USD", AvailableBalance: decimal.NewFromInt(0)},
+		},
+	}
+	v := NewValidator(111, nil, bc, nil)
+	p := mkRealAccountMonas("111000000000000001", decimal.NewFromInt(100), "USD")
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r != nil {
+		t.Errorf("expected nil reason for credit posting, got %+v", r)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ValidatePosting — UNACCEPTABLE_ASSET
+// ---------------------------------------------------------------------------
+
+func TestValidatePosting_UnacceptableAsset_AccountPlusStock(t *testing.T) {
+	// ACCOUNT + STOCK is always unacceptable (stocks don't sit on real accounts).
+	v := NewValidator(111, nil, nil, nil)
+	p := protocol.Posting{
+		Account: &protocol.RealAccount{Num: "111000000000000001"},
+		Amount:  decimal.NewFromInt(-10),
+		Asset:   &protocol.StockAsset{Ticker: "AAPL"},
+	}
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r == nil || r.Reason != protocol.ReasonUnacceptableAsset {
+		t.Errorf("expected UNACCEPTABLE_ASSET, got %+v", r)
+	}
+}
+
+func TestValidatePosting_UnacceptableAsset_PersonPlusStock(t *testing.T) {
+	v := NewValidator(111, nil, nil, nil)
+	p := protocol.Posting{
+		Account: &protocol.PersonAccount{Id: protocol.ForeignBankId{RoutingNumber: 111, Id: "C-5"}},
+		Amount:  decimal.NewFromInt(-10),
+		Asset:   &protocol.StockAsset{Ticker: "AAPL"},
+	}
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r == nil || r.Reason != protocol.ReasonUnacceptableAsset {
+		t.Errorf("expected UNACCEPTABLE_ASSET for Person+Stock, got %+v", r)
+	}
+}
+
+func TestValidatePosting_UnacceptableAsset_OptionAccountPlusMonas(t *testing.T) {
+	v := NewValidator(111, nil, nil, nil)
+	p := protocol.Posting{
+		Account: &protocol.OptionPseudoAccount{Id: protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-1"}},
+		Amount:  decimal.NewFromInt(-100),
+		Asset:   &protocol.MonasAsset{Currency: "USD"},
+	}
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r == nil || r.Reason != protocol.ReasonUnacceptableAsset {
+		t.Errorf("expected UNACCEPTABLE_ASSET for OptionAccount+Monas, got %+v", r)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ValidatePosting — OPTION_NEGOTIATION_NOT_FOUND
+// ---------------------------------------------------------------------------
+
+func TestValidatePosting_OptionNegotiationNotFound(t *testing.T) {
+	td := &fakeTD{negs: map[string]fakeNegInfo{}}
+	v := NewValidator(111, td, nil, nil)
+	p := protocol.Posting{
+		Account: &protocol.OptionPseudoAccount{Id: protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-missing"}},
+		Amount:  decimal.NewFromInt(-1),
+		Asset: &protocol.OptionAsset{OptionDescription: protocol.OptionDescription{
+			NegotiationId: protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-missing"},
+			Stock:         protocol.StockDescription{Ticker: "AAPL"},
+			PricePerUnit:  protocol.MonetaryValue{Currency: "USD", Amount: decimal.NewFromInt(200)},
+			SettlementDate: "2026-12-01T00:00:00Z",
+			Amount:        10,
+		}},
+	}
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r == nil || r.Reason != protocol.ReasonOptionNegotiationNotFound {
+		t.Errorf("expected OPTION_NEGOTIATION_NOT_FOUND, got %+v", r)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ValidatePosting — OPTION_USED_OR_EXPIRED
+// ---------------------------------------------------------------------------
+
+func TestValidatePosting_OptionUsedOrExpired_NotOngoing(t *testing.T) {
+	td := &fakeTD{negs: map[string]fakeNegInfo{
+		"111:neg-expired": {
+			isOngoing:    false,
+			settlement:   time.Now().Add(30 * 24 * time.Hour),
+			amount:       10,
+			pricePerUnit: decimal.NewFromInt(200),
+		},
+	}}
+	v := NewValidator(111, td, nil, nil)
+	p := protocol.Posting{
+		Account: &protocol.OptionPseudoAccount{Id: protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-expired"}},
+		Amount:  decimal.NewFromInt(1),
+		Asset: &protocol.OptionAsset{OptionDescription: protocol.OptionDescription{
+			NegotiationId:  protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-expired"},
+			Stock:          protocol.StockDescription{Ticker: "AAPL"},
+			PricePerUnit:   protocol.MonetaryValue{Currency: "USD", Amount: decimal.NewFromInt(200)},
+			SettlementDate: "2026-12-01T00:00:00Z",
+			Amount:         10,
+		}},
+	}
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r == nil || r.Reason != protocol.ReasonOptionUsedOrExpired {
+		t.Errorf("expected OPTION_USED_OR_EXPIRED (not ongoing), got %+v", r)
+	}
+}
+
+func TestValidatePosting_OptionUsedOrExpired_PastSettlement(t *testing.T) {
+	td := &fakeTD{negs: map[string]fakeNegInfo{
+		"111:neg-past": {
+			isOngoing:    true,
+			settlement:   time.Now().Add(-1 * time.Hour), // settlement already passed
+			amount:       10,
+			pricePerUnit: decimal.NewFromInt(200),
+		},
+	}}
+	v := NewValidator(111, td, nil, nil)
+	p := protocol.Posting{
+		Account: &protocol.OptionPseudoAccount{Id: protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-past"}},
+		Amount:  decimal.NewFromInt(1),
+		Asset: &protocol.OptionAsset{OptionDescription: protocol.OptionDescription{
+			NegotiationId:  protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-past"},
+			Stock:          protocol.StockDescription{Ticker: "AAPL"},
+			PricePerUnit:   protocol.MonetaryValue{Currency: "USD", Amount: decimal.NewFromInt(200)},
+			SettlementDate: "2024-01-01T00:00:00Z",
+			Amount:         10,
+		}},
+	}
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r == nil || r.Reason != protocol.ReasonOptionUsedOrExpired {
+		t.Errorf("expected OPTION_USED_OR_EXPIRED (past settlement), got %+v", r)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ValidatePosting — OPTION_AMOUNT_INCORRECT
+// ---------------------------------------------------------------------------
+
+func TestValidatePosting_OptionAmountIncorrect(t *testing.T) {
+	td := &fakeTD{negs: map[string]fakeNegInfo{
+		"111:neg-1": {
+			isOngoing:    true,
+			settlement:   time.Now().Add(30 * 24 * time.Hour),
+			amount:       10,
+			pricePerUnit: decimal.NewFromInt(200),
+		},
+	}}
+	v := NewValidator(111, td, nil, nil)
+	p := protocol.Posting{
+		Account: &protocol.OptionPseudoAccount{Id: protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-1"}},
+		Amount:  decimal.NewFromInt(7), // not 1, not 10 (=k), not 2000 (=k·π)
+		Asset: &protocol.OptionAsset{OptionDescription: protocol.OptionDescription{
+			NegotiationId:  protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-1"},
+			Stock:          protocol.StockDescription{Ticker: "AAPL"},
+			PricePerUnit:   protocol.MonetaryValue{Currency: "USD", Amount: decimal.NewFromInt(200)},
+			SettlementDate: "2026-12-01T00:00:00Z",
+			Amount:         10,
+		}},
+	}
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r == nil || r.Reason != protocol.ReasonOptionAmountIncorrect {
+		t.Errorf("expected OPTION_AMOUNT_INCORRECT, got %+v", r)
+	}
+}
+
+func TestValidatePosting_OptionAmount_One_Valid(t *testing.T) {
+	// amount=1 is valid (accept flow per spec §3.6)
+	td := &fakeTD{negs: map[string]fakeNegInfo{
+		"111:neg-2": {
+			isOngoing:    true,
+			settlement:   time.Now().Add(30 * 24 * time.Hour),
+			amount:       10,
+			pricePerUnit: decimal.NewFromInt(200),
+		},
+	}}
+	v := NewValidator(111, td, nil, nil)
+	p := protocol.Posting{
+		Account: &protocol.OptionPseudoAccount{Id: protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-2"}},
+		Amount:  decimal.NewFromInt(1),
+		Asset: &protocol.OptionAsset{OptionDescription: protocol.OptionDescription{
+			NegotiationId:  protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-2"},
+			Stock:          protocol.StockDescription{Ticker: "AAPL"},
+			PricePerUnit:   protocol.MonetaryValue{Currency: "USD", Amount: decimal.NewFromInt(200)},
+			SettlementDate: "2026-12-01T00:00:00Z",
+			Amount:         10,
+		}},
+	}
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r != nil {
+		t.Errorf("expected nil (amount=1 is valid), got %+v", r)
+	}
+}
+
+func TestValidatePosting_OptionAmount_K_Valid(t *testing.T) {
+	// amount=k (=10) is valid (stock exercise flow)
+	td := &fakeTD{negs: map[string]fakeNegInfo{
+		"111:neg-3": {
+			isOngoing:    true,
+			settlement:   time.Now().Add(30 * 24 * time.Hour),
+			amount:       10,
+			pricePerUnit: decimal.NewFromInt(200),
+		},
+	}}
+	v := NewValidator(111, td, nil, nil)
+	p := protocol.Posting{
+		Account: &protocol.OptionPseudoAccount{Id: protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-3"}},
+		Amount:  decimal.NewFromInt(10), // k
+		Asset: &protocol.OptionAsset{OptionDescription: protocol.OptionDescription{
+			NegotiationId:  protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-3"},
+			Stock:          protocol.StockDescription{Ticker: "AAPL"},
+			PricePerUnit:   protocol.MonetaryValue{Currency: "USD", Amount: decimal.NewFromInt(200)},
+			SettlementDate: "2026-12-01T00:00:00Z",
+			Amount:         10,
+		}},
+	}
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r != nil {
+		t.Errorf("expected nil (amount=k is valid), got %+v", r)
+	}
+}
+
+func TestValidatePosting_OptionAmount_KPi_Valid(t *testing.T) {
+	// amount=k·π (=10*200=2000) is valid (monas exercise flow)
+	td := &fakeTD{negs: map[string]fakeNegInfo{
+		"111:neg-4": {
+			isOngoing:    true,
+			settlement:   time.Now().Add(30 * 24 * time.Hour),
+			amount:       10,
+			pricePerUnit: decimal.NewFromInt(200),
+		},
+	}}
+	v := NewValidator(111, td, nil, nil)
+	p := protocol.Posting{
+		Account: &protocol.OptionPseudoAccount{Id: protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-4"}},
+		Amount:  decimal.NewFromInt(2000), // k·π = 10 * 200
+		Asset: &protocol.OptionAsset{OptionDescription: protocol.OptionDescription{
+			NegotiationId:  protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-4"},
+			Stock:          protocol.StockDescription{Ticker: "AAPL"},
+			PricePerUnit:   protocol.MonetaryValue{Currency: "USD", Amount: decimal.NewFromInt(200)},
+			SettlementDate: "2026-12-01T00:00:00Z",
+			Amount:         10,
+		}},
+	}
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r != nil {
+		t.Errorf("expected nil (amount=k·π is valid), got %+v", r)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PersonAccount + Option (spec §3.6 accept leg — valid)
+// ---------------------------------------------------------------------------
+
+func TestValidatePosting_PersonPlusOption_Valid(t *testing.T) {
+	v := NewValidator(111, nil, nil, nil)
+	p := protocol.Posting{
+		Account: &protocol.PersonAccount{Id: protocol.ForeignBankId{RoutingNumber: 111, Id: "C-5"}},
+		Amount:  decimal.NewFromInt(1),
+		Asset: &protocol.OptionAsset{OptionDescription: protocol.OptionDescription{
+			NegotiationId:  protocol.ForeignBankId{RoutingNumber: 111, Id: "neg-x"},
+			Stock:          protocol.StockDescription{Ticker: "AAPL"},
+			PricePerUnit:   protocol.MonetaryValue{Currency: "USD", Amount: decimal.NewFromInt(200)},
+			SettlementDate: "2026-12-01T00:00:00Z",
+			Amount:         10,
+		}},
+	}
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r != nil {
+		t.Errorf("expected nil (Person+Option is valid accept-leg), got %+v", r)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// OptionPseudoAccount partner side — should be skipped
+// ---------------------------------------------------------------------------
+
+func TestValidatePosting_OptionAccount_PartnerRouting_Skipped(t *testing.T) {
+	v := NewValidator(111, nil, nil, nil)
+	p := protocol.Posting{
+		Account: &protocol.OptionPseudoAccount{Id: protocol.ForeignBankId{RoutingNumber: 222, Id: "neg-remote"}},
+		Amount:  decimal.NewFromInt(1),
+		Asset: &protocol.OptionAsset{OptionDescription: protocol.OptionDescription{
+			NegotiationId:  protocol.ForeignBankId{RoutingNumber: 222, Id: "neg-remote"},
+			Stock:          protocol.StockDescription{Ticker: "AAPL"},
+			PricePerUnit:   protocol.MonetaryValue{Currency: "USD", Amount: decimal.NewFromInt(200)},
+			SettlementDate: "2026-12-01T00:00:00Z",
+			Amount:         10,
+		}},
+	}
+	r, err := v.ValidatePosting(context.Background(), p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if r != nil {
+		t.Errorf("expected nil (partner-side option account), got %+v", r)
+	}
+}
