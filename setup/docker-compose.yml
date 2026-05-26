@@ -362,7 +362,7 @@ services:
   user-service:
     build:
       context: ..
-      dockerfile: user-service/Dockerfile
+      dockerfile: user-service-go/Dockerfile
       args:
         SERVER_PORT: ${USER_SERVICE_PORT:-8081}
     container_name: banka_user_service

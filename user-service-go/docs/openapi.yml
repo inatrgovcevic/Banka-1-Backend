@@ -1,0 +1,647 @@
+openapi: 3.0.3
+info:
+  title: Banka 1 User Service Go API
+  version: 1.0.0
+  description: Go implementation of the Banka 1 user-service HTTP API.
+servers:
+  - url: http://localhost:8081
+tags:
+  - name: health
+  - name: employee-auth
+  - name: employees
+  - name: client-auth
+  - name: clients
+  - name: internal
+paths:
+  /actuator/health/liveness:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Service is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+  /actuator/health/readiness:
+    get:
+      tags: [health]
+      summary: Readiness probe
+      responses:
+        "200":
+          description: Service is ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+  /actuator/info:
+    get:
+      tags: [health]
+      summary: Service information
+      responses:
+        "200":
+          description: Service metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /employees/auth/login:
+    post:
+      tags: [employee-auth]
+      summary: Employee login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Employee authentication token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeLoginResponse"
+        "401":
+          description: Invalid credentials.
+  /employees/auth/refresh:
+    post:
+      tags: [employee-auth]
+      summary: Refresh employee access token
+      responses:
+        "200":
+          description: Refreshed token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeLoginResponse"
+        "401":
+          description: Invalid refresh token.
+  /employees/auth/checkActivate:
+    get:
+      tags: [employee-auth]
+      summary: Check employee activation token
+      parameters:
+        - $ref: "#/components/parameters/TokenQuery"
+      responses:
+        "200":
+          description: Token is valid.
+        "400":
+          description: Token is invalid.
+  /employees/auth/checkResetPassword:
+    get:
+      tags: [employee-auth]
+      summary: Check employee password reset token
+      parameters:
+        - $ref: "#/components/parameters/TokenQuery"
+      responses:
+        "200":
+          description: Token is valid.
+        "400":
+          description: Token is invalid.
+  /employees/auth/activate:
+    post:
+      tags: [employee-auth]
+      summary: Activate employee account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenPasswordRequest"
+      responses:
+        "200":
+          description: Account activated.
+        "400":
+          description: Invalid token or password.
+  /employees/auth/resetPassword:
+    post:
+      tags: [employee-auth]
+      summary: Reset employee password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenPasswordRequest"
+      responses:
+        "200":
+          description: Password reset.
+        "400":
+          description: Invalid token or password.
+  /employees/auth/logout:
+    delete:
+      tags: [employee-auth]
+      summary: Employee logout
+      responses:
+        "204":
+          description: Logout accepted.
+  /employees/auth/forgot-password:
+    post:
+      tags: [employee-auth]
+      summary: Request employee password reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "202":
+          description: Reset email queued when account exists.
+  /employees/auth/resend-activation:
+    post:
+      tags: [employee-auth]
+      summary: Resend employee activation email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "202":
+          description: Activation email queued when account exists.
+  /employees:
+    get:
+      tags: [employees]
+      summary: List employees
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Employee list.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Employee"
+    post:
+      tags: [employees]
+      summary: Create employee
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmployeeCreateRequest"
+      responses:
+        "201":
+          description: Employee created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+  /employees/search:
+    get:
+      tags: [employees]
+      summary: Search employees
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Matching employees.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Employee"
+  /employees/edit:
+    put:
+      tags: [employees]
+      summary: Edit current employee profile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmployeeUpdateRequest"
+      responses:
+        "200":
+          description: Employee updated.
+  /employees/{id}:
+    get:
+      tags: [employees]
+      summary: Get employee by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Employee details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "404":
+          description: Employee not found.
+    put:
+      tags: [employees]
+      summary: Update employee by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmployeeUpdateRequest"
+      responses:
+        "200":
+          description: Employee updated.
+    delete:
+      tags: [employees]
+      summary: Deactivate employee by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Employee deactivated.
+  /clients/auth/login:
+    post:
+      tags: [client-auth]
+      summary: Client login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Client authentication token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientLoginResponse"
+        "401":
+          description: Invalid credentials.
+  /clients/auth/check-activate:
+    get:
+      tags: [client-auth]
+      summary: Check client activation token
+      parameters:
+        - $ref: "#/components/parameters/TokenQuery"
+      responses:
+        "200":
+          description: Token is valid.
+        "400":
+          description: Token is invalid.
+  /clients/auth/activate:
+    post:
+      tags: [client-auth]
+      summary: Activate client account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenPasswordRequest"
+      responses:
+        "200":
+          description: Account activated.
+  /clients/auth/reset-password:
+    post:
+      tags: [client-auth]
+      summary: Reset client password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenPasswordRequest"
+      responses:
+        "200":
+          description: Password reset.
+  /clients/auth/forgot-password:
+    post:
+      tags: [client-auth]
+      summary: Request client password reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "202":
+          description: Reset email queued when account exists.
+  /clients/auth/resend-activation:
+    post:
+      tags: [client-auth]
+      summary: Resend client activation email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "202":
+          description: Activation email queued when account exists.
+  /clients/customers:
+    get:
+      tags: [clients]
+      summary: List clients
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Client list.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Client"
+    post:
+      tags: [clients]
+      summary: Create client
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientCreateRequest"
+      responses:
+        "201":
+          description: Client created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+  /clients/customers/search:
+    get:
+      tags: [clients]
+      summary: Search clients
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Matching clients.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Client"
+  /clients/customers/{id}:
+    get:
+      tags: [clients]
+      summary: Get client by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Client details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+        "404":
+          description: Client not found.
+    put:
+      tags: [clients]
+      summary: Update client by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientUpdateRequest"
+      responses:
+        "200":
+          description: Client updated.
+    delete:
+      tags: [clients]
+      summary: Deactivate client by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "204":
+          description: Client deactivated.
+  /clients/customers/margin/{id}:
+    put:
+      tags: [clients]
+      summary: Update client margin by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Margin updated.
+  /clients/customers/jmbg/{jmbg}:
+    get:
+      tags: [clients]
+      summary: Get client by JMBG
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jmbg
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Client details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+        "404":
+          description: Client not found.
+  /internal/interbank/user/{type}/{id}:
+    get:
+      tags: [internal]
+      summary: Resolve internal user data for interbank flows
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [employee, client]
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Internal user details.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /internal/otc/actuary-client-ids:
+    get:
+      tags: [internal]
+      summary: List OTC actuary client ids
+      responses:
+        "200":
+          description: Client ids used by OTC integration.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: int64
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    TokenQuery:
+      name: token
+      in: query
+      required: true
+      schema:
+        type: string
+  schemas:
+    StatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: UP
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    EmailRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    TokenPasswordRequest:
+      type: object
+      properties:
+        token:
+          type: string
+        confirmationToken:
+          type: string
+        password:
+          type: string
+          format: password
+    EmployeeLoginResponse:
+      type: object
+      properties:
+        jwt:
+          type: string
+        refreshToken:
+          type: string
+        role:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+    ClientLoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        id:
+          type: integer
+          format: int64
+        ime:
+          type: string
+        prezime:
+          type: string
+        email:
+          type: string
+          format: email
+    Employee:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+          format: int64
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+        active:
+          type: boolean
+    EmployeeCreateRequest:
+      type: object
+      additionalProperties: true
+    EmployeeUpdateRequest:
+      type: object
+      additionalProperties: true
+    Client:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+          format: int64
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+        active:
+          type: boolean
+    ClientCreateRequest:
+      type: object
+      additionalProperties: true
+    ClientUpdateRequest:
+      type: object
+      additionalProperties: true
