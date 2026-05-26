@@ -239,6 +239,15 @@ func (s *Service) UpdateEmployee(ctx context.Context, id int64, req EmployeeUpda
 	if err != nil {
 		return EmployeeResponse{}, err
 	}
+	if req.Role != nil || req.Margin != nil {
+		permissions := employeePermissions(employee.Role)
+		if req.Margin != nil && *req.Margin && !containsPermission(permissions, "MARGIN_TRADE") {
+			permissions = append(permissions, "MARGIN_TRADE")
+		}
+		if err := s.repo.ReplaceEmployeePermissions(ctx, employee.ID, permissions); err != nil {
+			return EmployeeResponse{}, err
+		}
+	}
 	employee.Permissions = s.repo.EmployeePermissions(ctx, employee.ID, employee.Role)
 	if req.Aktivan != nil && !*req.Aktivan {
 		_ = s.publishEmail(ctx, "employee.account_deactivated", "EMPLOYEE_ACCOUNT_DEACTIVATED", employee.Ime, employee.Email, "")
@@ -279,7 +288,7 @@ func (s *Service) GetClientInfo(ctx context.Context, id int64, principal platfor
 	if err != nil {
 		return ClientInfoResponse{}, err
 	}
-	return ClientInfoResponse{ID: client.ID, Ime: client.Ime, Prezime: client.Prezime, Email: client.Email}, nil
+	return clientInfoDTO(client), nil
 }
 
 func (s *Service) GetClientInfoByJMBG(ctx context.Context, jmbg string) (ClientInfoResponse, error) {
@@ -287,7 +296,7 @@ func (s *Service) GetClientInfoByJMBG(ctx context.Context, jmbg string) (ClientI
 	if err != nil {
 		return ClientInfoResponse{}, err
 	}
-	return ClientInfoResponse{ID: client.ID, Ime: client.Ime, Prezime: client.Prezime, Email: client.Email}, nil
+	return clientInfoDTO(client), nil
 }
 
 func (s *Service) CreateClient(ctx context.Context, req ClientCreateRequest) (ClientResponse, error) {
@@ -391,12 +400,41 @@ func page[T any](content []T, total, current, size int) PageResponse[T] {
 	if size > 0 {
 		totalPages = (total + size - 1) / size
 	}
+	last := totalPages == 0 || current >= totalPages-1
 	return PageResponse[T]{
-		Content:       content,
-		TotalElements: total,
-		TotalPages:    totalPages,
-		CurrentPage:   current,
-		Size:          size,
+		Content:          content,
+		TotalElements:    total,
+		TotalPages:       totalPages,
+		CurrentPage:      current,
+		Number:           current,
+		Size:             size,
+		NumberOfElements: len(content),
+		First:            current == 0,
+		Last:             last,
+		Empty:            len(content) == 0,
+	}
+}
+
+func clientInfoDTO(client Client) ClientInfoResponse {
+	return ClientInfoResponse{
+		ID:            client.ID,
+		Ime:           client.Ime,
+		Prezime:       client.Prezime,
+		Name:          client.Ime,
+		LastName:      client.Prezime,
+		Email:         client.Email,
+		JMBG:          client.JMBG,
+		BrojTelefona:  client.BrojTelefona,
+		PhoneNumber:   client.BrojTelefona,
+		Adresa:        client.Adresa,
+		Address:       client.Adresa,
+		Pol:           client.Pol,
+		Gender:        client.Pol,
+		DatumRodjenja: client.DatumRodjenja,
+		DateOfBirth:   client.DatumRodjenja,
+		Role:          client.Role,
+		Aktivan:       client.Aktivan,
+		Active:        client.Aktivan,
 	}
 }
 
@@ -411,6 +449,15 @@ func firstNonBlank(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func containsPermission(permissions []string, needle string) bool {
+	for _, permission := range permissions {
+		if permission == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func confirmationToken(req ActivateRequest) string {

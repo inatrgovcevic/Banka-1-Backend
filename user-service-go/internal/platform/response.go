@@ -4,6 +4,7 @@
 package platform
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"banka1/go-platform/httpx"
@@ -15,8 +16,12 @@ func JSON(w http.ResponseWriter, status int, payload any) { httpx.JSON(w, status
 // NoContent delegates to go-platform/httpx.NoContent.
 func NoContent(w http.ResponseWriter, status int) { httpx.NoContent(w, status) }
 
-// DecodeJSON delegates to go-platform/httpx.DecodeJSON.
-func DecodeJSON(r *http.Request, dst any) error { return httpx.DecodeJSON(r, dst) }
+// DecodeJSON intentionally matches Spring/Jackson behavior used by the old
+// user-service: unknown fields are ignored so existing frontend payloads with
+// extra fields such as "margin" do not fail decoding.
+func DecodeJSON(r *http.Request, dst any) error {
+	return json.NewDecoder(r.Body).Decode(dst)
+}
 
 // Error keeps the user-service-go (w, status, code, message) signature.
 // Internally builds the standard go-platform ErrorBody, sourcing the

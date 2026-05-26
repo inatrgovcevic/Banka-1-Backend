@@ -62,6 +62,15 @@ server {
 
     # === User domain (employee + client; konsolidovano u user-service) ===
 
+    # Frontend legacy auth refresh/logout endpoints.
+    location /auth/ {
+        proxy_pass http://user_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # Exact /employees (Spring CrudController @GetMapping at /employees, no trailing slash)
     location = /employees {
         proxy_pass http://user_service/employees$is_args$args;

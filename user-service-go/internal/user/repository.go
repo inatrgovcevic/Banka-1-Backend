@@ -120,6 +120,24 @@ func (r *Repository) EmployeePermissions(ctx context.Context, id int64, role str
 	return out
 }
 
+func (r *Repository) ReplaceEmployeePermissions(ctx context.Context, id int64, permissions []string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM zaposlen_permissions WHERE zaposlen_id = $1`, id); err != nil {
+		_ = tx.Rollback(ctx)
+		return err
+	}
+	for _, permission := range permissions {
+		if _, err := tx.Exec(ctx, `INSERT INTO zaposlen_permissions(zaposlen_id, permission) VALUES ($1, $2) ON CONFLICT DO NOTHING`, id, permission); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func (r *Repository) ClientPermissions(ctx context.Context, id int64, role string) []string {
 	rows, err := r.db.Query(ctx, `SELECT permission FROM client_permissions WHERE client_id = $1`, id)
 	if err != nil {
