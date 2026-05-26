@@ -119,6 +119,7 @@ type EmployeeUpdateRequest struct {
 	Departman    *string `json:"departman"`
 	Aktivan      *bool   `json:"aktivan"`
 	Role         *string `json:"role"`
+	Margin       *bool   `json:"margin"`
 }
 
 type EmployeeResponse struct {
@@ -178,10 +179,24 @@ type ClientResponse struct {
 }
 
 type ClientInfoResponse struct {
-	ID      int64  `json:"id"`
-	Ime     string `json:"ime"`
-	Prezime string `json:"prezime"`
-	Email   string `json:"email,omitempty"`
+	ID            int64   `json:"id"`
+	Ime           string  `json:"ime"`
+	Prezime       string  `json:"prezime"`
+	Name          string  `json:"name"`
+	LastName      string  `json:"lastName"`
+	Email         string  `json:"email,omitempty"`
+	JMBG          *string `json:"jmbg,omitempty"`
+	BrojTelefona  *string `json:"brojTelefona,omitempty"`
+	PhoneNumber   *string `json:"phoneNumber,omitempty"`
+	Adresa        *string `json:"adresa,omitempty"`
+	Address       *string `json:"address,omitempty"`
+	Pol           string  `json:"pol,omitempty"`
+	Gender        string  `json:"gender,omitempty"`
+	DatumRodjenja int64   `json:"datumRodjenja,omitempty"`
+	DateOfBirth   int64   `json:"dateOfBirth,omitempty"`
+	Role          string  `json:"role,omitempty"`
+	Aktivan       bool    `json:"aktivan"`
+	Active        bool    `json:"active"`
 }
 
 type InterbankUserDisplayResponse struct {
@@ -191,11 +206,16 @@ type InterbankUserDisplayResponse struct {
 }
 
 type PageResponse[T any] struct {
-	Content       []T `json:"content"`
-	TotalElements int `json:"totalElements"`
-	TotalPages    int `json:"totalPages"`
-	CurrentPage   int `json:"currentPage"`
-	Size          int `json:"size"`
+	Content          []T  `json:"content"`
+	TotalElements    int  `json:"totalElements"`
+	TotalPages       int  `json:"totalPages"`
+	CurrentPage      int  `json:"currentPage"`
+	Number           int  `json:"number"`
+	Size             int  `json:"size"`
+	NumberOfElements int  `json:"numberOfElements"`
+	First            bool `json:"first"`
+	Last             bool `json:"last"`
+	Empty            bool `json:"empty"`
 }
 
 func employeeDTO(employee Employee) EmployeeResponse {

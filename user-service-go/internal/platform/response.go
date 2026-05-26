@@ -34,6 +34,5 @@ func Error(w http.ResponseWriter, status int, code, message string) {
 
 func DecodeJSON(r *http.Request, dst any) error {
 	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
 	return decoder.Decode(dst)
 }

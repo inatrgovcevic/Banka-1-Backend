@@ -19,18 +19,27 @@ func NewHandlers(service *Service) *Handlers {
 func (h *Handlers) RegisterRoutes(m *platform.Mux, auth *platform.JWTService) {
 	m.HandleFunc(http.MethodPost, "/employees/auth/login", h.employeeLogin)
 	m.HandleFunc(http.MethodPost, "/employees/auth/refresh", h.employeeRefresh)
+	m.HandleFunc(http.MethodPost, "/auth/refresh", h.employeeRefresh)
 	m.HandleFunc(http.MethodGet, "/employees/auth/checkActivate", h.employeeCheckActivate)
 	m.HandleFunc(http.MethodGet, "/employees/auth/checkResetPassword", h.employeeCheckActivate)
 	m.HandleFunc(http.MethodPost, "/employees/auth/activate", h.employeeActivate)
 	m.HandleFunc(http.MethodPost, "/employees/auth/resetPassword", h.employeeActivate)
 	m.HandleFunc(http.MethodDelete, "/employees/auth/logout", h.employeeLogout)
+	m.HandleFunc(http.MethodDelete, "/auth/logout", h.employeeLogout)
 	m.HandleFunc(http.MethodPost, "/employees/auth/forgot-password", h.employeeForgotPassword)
 	m.HandleFunc(http.MethodPost, "/employees/auth/resend-activation", h.employeeResendActivation)
 
 	m.Handle(http.MethodPost, "/employees", auth.Middleware(platform.RequireAnyRole("ADMIN")(http.HandlerFunc(h.createEmployee))))
 	m.Handle(http.MethodGet, "/employees", auth.Middleware(platform.RequireAnyRole("BASIC", "ADMIN", "SUPERVISOR", "AGENT")(http.HandlerFunc(h.searchEmployees))))
+	m.Handle(http.MethodPost, "/employees/employees", auth.Middleware(platform.RequireAnyRole("ADMIN")(http.HandlerFunc(h.createEmployee))))
+	m.Handle(http.MethodGet, "/employees/employees", auth.Middleware(platform.RequireAnyRole("BASIC", "ADMIN", "SUPERVISOR", "AGENT")(http.HandlerFunc(h.searchEmployees))))
 	m.Handle(http.MethodGet, "/employees/search", auth.Middleware(platform.RequireAnyRole("BASIC", "ADMIN", "SUPERVISOR", "AGENT")(http.HandlerFunc(h.searchEmployees))))
+	m.Handle(http.MethodGet, "/employees/employees/search", auth.Middleware(platform.RequireAnyRole("BASIC", "ADMIN", "SUPERVISOR", "AGENT")(http.HandlerFunc(h.searchEmployees))))
 	m.Handle(http.MethodPut, "/employees/edit", auth.Middleware(http.HandlerFunc(h.editEmployee)))
+	m.Handle(http.MethodPut, "/employees/employees/edit", auth.Middleware(http.HandlerFunc(h.editEmployee)))
+	m.Handle(http.MethodGet, "/employees/employees/", auth.Middleware(platform.RequireAnyRole("BASIC", "ADMIN", "SUPERVISOR", "AGENT", "SERVICE")(http.HandlerFunc(h.getEmployee))))
+	m.Handle(http.MethodPut, "/employees/employees/", auth.Middleware(platform.RequireAnyRole("AGENT", "ADMIN", "SUPERVISOR")(http.HandlerFunc(h.updateEmployee))))
+	m.Handle(http.MethodDelete, "/employees/employees/", auth.Middleware(platform.RequireAnyRole("ADMIN")(http.HandlerFunc(h.deleteEmployee))))
 	m.Handle(http.MethodGet, "/employees/", auth.Middleware(platform.RequireAnyRole("BASIC", "ADMIN", "SUPERVISOR", "AGENT", "SERVICE")(http.HandlerFunc(h.getEmployee))))
 	m.Handle(http.MethodPut, "/employees/", auth.Middleware(platform.RequireAnyRole("AGENT", "ADMIN", "SUPERVISOR")(http.HandlerFunc(h.updateEmployee))))
 	m.Handle(http.MethodDelete, "/employees/", auth.Middleware(platform.RequireAnyRole("ADMIN")(http.HandlerFunc(h.deleteEmployee))))
@@ -173,7 +182,7 @@ func (h *Handlers) createEmployee(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) getEmployee(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "/employees/")
+	id, ok := employeePathID(w, r)
 	if !ok {
 		return
 	}
@@ -182,7 +191,7 @@ func (h *Handlers) getEmployee(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) updateEmployee(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "/employees/")
+	id, ok := employeePathID(w, r)
 	if !ok {
 		return
 	}
@@ -215,7 +224,7 @@ func (h *Handlers) editEmployee(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) deleteEmployee(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "/employees/")
+	id, ok := employeePathID(w, r)
 	if !ok {
 		return
 	}
@@ -348,6 +357,13 @@ func pathID(w http.ResponseWriter, r *http.Request, prefix string) (int64, bool)
 		return 0, false
 	}
 	return id, true
+}
+
+func employeePathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	if strings.HasPrefix(r.URL.Path, "/employees/employees/") {
+		return pathID(w, r, "/employees/employees/")
+	}
+	return pathID(w, r, "/employees/")
 }
 
 func searchQuery(r *http.Request) SearchQuery {
