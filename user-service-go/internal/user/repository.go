@@ -532,7 +532,7 @@ func employeeWhere(query SearchQuery) (string, []any) {
 	if strings.TrimSpace(query.Query) != "" {
 		args = append(args, "%"+strings.ToLower(strings.TrimSpace(query.Query))+"%")
 		n := itoa(len(args))
-		clauses = append(clauses, "(lower(ime) LIKE $"+n+" OR lower(prezime) LIKE $"+n+" OR lower(email) LIKE $"+n+")")
+		clauses = append(clauses, "(lower(ime) LIKE $"+n+" OR lower(prezime) LIKE $"+n+" OR lower(email) LIKE $"+n+" OR lower(pozicija) LIKE $"+n+")")
 	}
 	if len(clauses) == 0 {
 		return "", args

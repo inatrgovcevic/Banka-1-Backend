@@ -235,6 +235,16 @@ func (s *Service) CreateEmployee(ctx context.Context, req EmployeeCreateRequest)
 }
 
 func (s *Service) UpdateEmployee(ctx context.Context, id int64, req EmployeeUpdateRequest) (EmployeeResponse, error) {
+	current, err := s.repo.EmployeeByID(ctx, id)
+	if err != nil {
+		return EmployeeResponse{}, err
+	}
+	if principal, ok := platform.PrincipalFromContext(ctx); ok &&
+		principal.Role == "ADMIN" &&
+		current.Role == "ADMIN" &&
+		principal.ID != current.ID {
+		return EmployeeResponse{}, ErrForbidden
+	}
 	employee, err := s.repo.UpdateEmployee(ctx, id, req)
 	if err != nil {
 		return EmployeeResponse{}, err
