@@ -297,6 +297,13 @@ CREATE TABLE IF NOT EXISTS gdpr_event_log (
 CREATE INDEX IF NOT EXISTS idx_gdpr_event_log_processed_at
     ON gdpr_event_log(processed_at);
 
+CREATE TABLE IF NOT EXISTS shedlock (
+    name       VARCHAR(64)  NOT NULL PRIMARY KEY,
+    lock_until TIMESTAMP    NOT NULL,
+    locked_at  TIMESTAMP    NOT NULL,
+    locked_by  VARCHAR(255) NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS transfer_retry_log (
     transfer_id BIGINT NOT NULL,
     retry_attempt INTEGER NOT NULL,

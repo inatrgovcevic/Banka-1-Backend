@@ -253,7 +253,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.clientAccounts(w, r, strings.TrimPrefix(path, "/employee/accounts/client/"))
 
 	default:
-		writeError(w, http.StatusNotFound, "ERR_NOT_FOUND", "Resurs nije pronadjen", path)
+		if isKnownPath(path) {
+			writeError(w, http.StatusMethodNotAllowed, "ERR_METHOD_NOT_ALLOWED", "Metod nije dozvoljen", r.Method+" nije podrzan za "+path)
+		} else {
+			writeError(w, http.StatusNotFound, "ERR_NOT_FOUND", "Resurs nije pronadjen", path)
+		}
 	}
 }
 
@@ -567,4 +571,70 @@ func parseRawDecimal(raw json.RawMessage) (decimal.Decimal, error) {
 		return d, err
 	}
 	return d, nil
+}
+
+// isKnownPath returns true when the path matches a registered route (ignoring HTTP method).
+// Used to return 405 instead of 404 when the path is valid but the method is wrong.
+func isKnownPath(path string) bool {
+	switch path {
+	case
+		"/actuator/health/liveness", "/actuator/health/readiness", "/actuator/info",
+		"/verification/generate", "/verification/validate",
+		"/accounts/api/currencies/getAll", "/accounts/api/currencies/getAllPage", "/accounts/api/currencies",
+		"/accounts/employee/accounts/checking", "/accounts/employee/accounts/fx",
+		"/accounts/employee/accounts", "/accounts/employee/accounts/bank",
+		"/accounts/client/accounts",
+		"/api/cards/auto", "/api/cards/request", "/api/cards/request/business", "/api/cards/all",
+		"/transactions/payment", "/transactions/payments",
+		"/transactions/by-client", "/transactions/by-sender-client", "/transactions/by-recipient-client",
+		"/transactions/by-this-client", "/transactions/by-this-sender-client", "/transactions/by-this-recipient-client",
+		"/transactions/api/payments",
+		"/payment-recipients",
+		"/transfers", "/transfers/",
+		"/accounts/createMarginAccount", "/accounts/company/createMarginAccount",
+		"/transactions/stockBuyMarginTransaction", "/transactions/stockSellMarginTransaction",
+		"/transactions/internal/reserve-funds", "/transactions/internal/transfer",
+		"/internal/interbank/reserve-monas", "/internal/interbank/account-by-owner", "/internal/interbank/account-resolve",
+		"/internal/accounts/transaction", "/internal/accounts/exchange/buy", "/internal/accounts/exchange/sell",
+		"/internal/accounts/transactionFromBank", "/internal/accounts/debit", "/internal/accounts/credit",
+		"/internal/accounts/creditBank", "/internal/accounts/debitBank",
+		"/internal/accounts/transfer", "/internal/accounts/info", "/internal/accounts/system":
+		return true
+	}
+	for _, prefix := range []string{
+		"/verification/",
+		"/accounts/api/currencies/",
+		"/accounts/employee/accounts/",
+		"/accounts/employee/companies/",
+		"/accounts/client/api/accounts/",
+		"/accounts/client/accounts/",
+		"/accounts/getMarginUser/",
+		"/accounts/company/getMarginCompany/",
+		"/accounts/internal/default/",
+		"/api/cards/client/",
+		"/api/cards/id/",
+		"/api/cards/account/",
+		"/api/cards/internal/account/",
+		"/transactions/employee/accounts/",
+		"/transactions/accounts/",
+		"/transactions/addToMargin/",
+		"/transactions/withdrawFromMargin/",
+		"/transactions/getAllMarginTransactions/",
+		"/transactions/internal/reservations/",
+		"/transactions/internal/transfers/",
+		"/payment-recipients/",
+		"/transfers/accounts/",
+		"/transfers/",
+		"/internal/interbank/reservations/",
+		"/internal/accounts/state/",
+		"/internal/accounts/id/",
+		"/internal/accounts/bank/",
+		"/internal/accounts/",
+		"/employee/accounts/client/",
+	} {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }

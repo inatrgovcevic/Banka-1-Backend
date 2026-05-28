@@ -22,6 +22,8 @@ type ExternalTransferService struct {
 	rabbit                *RabbitPublisher
 	http                  *http.Client
 	clearingRetryBackoffs []time.Duration
+	schedulerLock         *distributedLock
+	cb                    *CircuitBreaker
 }
 
 type ExternalTransferRetrySummary struct {
@@ -72,6 +74,8 @@ func NewExternalTransferService(db *sql.DB, cfg config.Config, rabbit *RabbitPub
 		rabbit:                rabbit,
 		http:                  &http.Client{Timeout: 30 * time.Second},
 		clearingRetryBackoffs: []time.Duration{250 * time.Millisecond, 500 * time.Millisecond},
+		schedulerLock:         newDistributedLock(db, "ExternalTransferRetry", 5*time.Minute, 30*time.Second),
+		cb:                    NewCircuitBreaker(5, 2, 60*time.Second),
 	}
 }
 
@@ -155,12 +159,19 @@ func (s *ExternalTransferService) runRetryScheduler(ctx context.Context) {
 			return
 		case <-timer.C:
 		}
-		summary, err := s.RetryFailedExternalTransfers(ctx)
+		ran, err := s.schedulerLock.try(ctx, func(ctx context.Context) error {
+			summary, err := s.RetryFailedExternalTransfers(ctx)
+			if err != nil {
+				return err
+			}
+			log.Printf("external transfer retry finished: escalated=%d retried=%d", summary.Escalated, summary.Retried)
+			return nil
+		})
 		if err != nil {
 			log.Printf("external transfer retry failed: %v", err)
-			continue
+		} else if !ran {
+			log.Printf("external transfer retry skipped: lock held by another instance")
 		}
-		log.Printf("external transfer retry finished: escalated=%d retried=%d", summary.Escalated, summary.Retried)
 	}
 }
 
@@ -288,6 +299,11 @@ VALUES ($1, $2, now())
 }
 
 func (s *ExternalTransferService) issueClearingHouseTransfer(ctx context.Context, event transferRetryEvent) clearingHouseIssueResult {
+	if !s.cb.Allow() {
+		log.Printf("circuit open: skipping clearing-house call for transfer id=%d", event.TransferID)
+		return clearingHouseIssueResult{Success: false, FailureReason: "circuit open: clearing-house unavailable", retryableFailure: true}
+	}
+
 	body, err := json.Marshal(map[string]any{
 		"transferId":       event.TransferID,
 		"amount":           event.Amount,
@@ -302,7 +318,14 @@ func (s *ExternalTransferService) issueClearingHouseTransfer(ctx context.Context
 	var last clearingHouseIssueResult
 	for attempt := 0; attempt < attempts; attempt++ {
 		last = s.issueClearingHouseTransferOnce(ctx, event, body)
-		if last.Success || !last.retryable() || attempt == attempts-1 {
+		if last.Success {
+			s.cb.RecordSuccess()
+			return last
+		}
+		if last.retryableFailure {
+			s.cb.RecordFailure()
+		}
+		if !last.retryable() || attempt == attempts-1 {
 			return last
 		}
 		timer := time.NewTimer(s.clearingRetryBackoffs[attempt])

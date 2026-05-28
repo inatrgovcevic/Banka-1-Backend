@@ -44,23 +44,25 @@ type AccountDetails struct {
 }
 
 type accountBalanceRow struct {
-	ID               int64
-	AccountNumber    string
-	OwnerID          int64
-	Currency         string
-	AvailableBalance decimal.Decimal
-	BookedBalance    decimal.Decimal
-	Status           string
-	AccountType      string
-	Email            string
-	Username         string
-	DailyLimit       decimal.Decimal
-	MonthlyLimit     decimal.Decimal
-	DailySpending    decimal.Decimal
-	MonthlySpending  decimal.Decimal
-	HasDailyLimit    bool
-	HasMonthlyLimit  bool
-	ExpiresAt        sql.NullTime
+	ID                    int64
+	AccountNumber         string
+	OwnerID               int64
+	Currency              string
+	AvailableBalance      decimal.Decimal
+	BookedBalance         decimal.Decimal
+	Status                string
+	AccountType           string
+	Email                 string
+	Username              string
+	DailyLimit            decimal.Decimal
+	MonthlyLimit          decimal.Decimal
+	DailySpending         decimal.Decimal
+	MonthlySpending       decimal.Decimal
+	HasDailyLimit         bool
+	HasMonthlyLimit       bool
+	ExpiresAt             sql.NullTime
+	DailyLimitRemaining   decimal.Decimal
+	HasDailyLimitRemaining bool
 }
 
 func NewAccountService(db *sql.DB, cfg config.Config, rabbit *RabbitPublisher) *AccountService {
@@ -186,6 +188,9 @@ func (s *AccountService) DebitTx(ctx context.Context, tx *sql.Tx, accountNumber 
 	if account.HasDailyLimit && account.DailySpending.Add(amount).Cmp(account.DailyLimit) > 0 {
 		return Conflict("ERR_DAILY_LIMIT_EXCEEDED", "Dnevni limit je prekoracen", "Dnevni limit je prekoracen")
 	}
+	if account.HasDailyLimitRemaining && account.DailyLimitRemaining.Cmp(amount) < 0 {
+		return Conflict("ERR_DAILY_LIMIT_EXCEEDED", "Dnevni limit je prekoracen", "Dnevni limit je prekoracen")
+	}
 	if account.HasMonthlyLimit && account.MonthlySpending.Add(amount).Cmp(account.MonthlyLimit) > 0 {
 		return Conflict("ERR_MONTHLY_LIMIT_EXCEEDED", "Mesecni limit je prekoracen", "Mesecni limit je prekoracen")
 	}
@@ -196,6 +201,10 @@ UPDATE account_table
        raspolozivo_stanje = raspolozivo_stanje - $1,
        dnevna_potrosnja = dnevna_potrosnja + $1,
        mesecna_potrosnja = mesecna_potrosnja + $1,
+       daily_limit_remaining = CASE
+           WHEN daily_limit_remaining IS NOT NULL THEN daily_limit_remaining - $1
+           ELSE NULL
+       END,
        version = COALESCE(version, 0) + 1,
        updated_at = now()
  WHERE id = $2
@@ -292,6 +301,8 @@ func scanAccount(row *sql.Row) (accountBalanceRow, error) {
 		&out.HasDailyLimit,
 		&out.HasMonthlyLimit,
 		&out.ExpiresAt,
+		&out.DailyLimitRemaining,
+		&out.HasDailyLimitRemaining,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return accountBalanceRow{}, NotFound("Ne postoji racun")
@@ -318,7 +329,9 @@ SELECT a.id,
        COALESCE(a.mesecna_potrosnja, 0),
        a.dnevni_limit IS NOT NULL,
        a.mesecni_limit IS NOT NULL,
-       a.datum_isteka
+       a.datum_isteka,
+       COALESCE(a.daily_limit_remaining, 0),
+       a.daily_limit_remaining IS NOT NULL
   FROM account_table a
   LEFT JOIN currency_table c ON c.id = a.currency_id
 `

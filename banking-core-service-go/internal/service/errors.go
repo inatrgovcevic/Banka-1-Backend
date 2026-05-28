@@ -28,6 +28,10 @@ func Conflict(code, title, format string, args ...any) *Error {
 	return &Error{Status: 409, Code: code, Title: title, Message: fmt.Sprintf(format, args...)}
 }
 
+func Forbidden(format string, args ...any) *Error {
+	return &Error{Status: 403, Code: "ERR_FORBIDDEN", Title: "Pristup odbijen", Message: fmt.Sprintf(format, args...)}
+}
+
 func Internal(format string, args ...any) *Error {
 	return &Error{Status: 500, Code: "ERR_INTERNAL", Title: "Interna greska", Message: fmt.Sprintf(format, args...)}
 }
