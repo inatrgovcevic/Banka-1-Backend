@@ -423,7 +423,7 @@ services:
   banking-core-service:
     build:
       context: ..
-      dockerfile: banking-core-service/Dockerfile
+      dockerfile: banking-core-service-go/Dockerfile
       args:
         SERVER_PORT: ${BANKING_CORE_SERVICE_PORT:-8084}
     container_name: banka_banking_core_service
