@@ -34,12 +34,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.enforceAuth(w, r) {
+		return
+	}
+
 	path := r.URL.Path
 	switch {
-	case r.Method == http.MethodGet && (path == "/actuator/health/liveness" || path == "/actuator/health/readiness"):
-		writeJSON(w, http.StatusOK, map[string]string{"status": "UP"})
+	case r.Method == http.MethodGet && path == "/actuator/health/liveness":
+		h.liveness(w, r)
+	case r.Method == http.MethodGet && (path == "/actuator/health/readiness" || path == "/actuator/health"):
+		h.readiness(w, r)
 	case r.Method == http.MethodGet && path == "/actuator/info":
 		writeJSON(w, http.StatusOK, map[string]string{"app": "banking-core-service-go"})
+	case r.Method == http.MethodGet && path == "/actuator/prometheus":
+		h.prometheus(w, r)
 
 	case r.Method == http.MethodPost && path == "/verification/generate":
 		h.verificationGenerate(w, r)
@@ -262,6 +270,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createUserMarginAccount(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAuthenticated(w, r) {
+		return
+	}
 	var req service.CreateUserMarginAccountRequest
 	if !decode(w, r, &req) {
 		return
@@ -271,6 +282,9 @@ func (h *Handler) createUserMarginAccount(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) createCompanyMarginAccount(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAuthenticated(w, r) {
+		return
+	}
 	var req service.CreateCompanyMarginAccountRequest
 	if !decode(w, r, &req) {
 		return
@@ -280,6 +294,9 @@ func (h *Handler) createCompanyMarginAccount(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *Handler) getMarginUser(w http.ResponseWriter, r *http.Request, rawID string) {
+	if !h.requireAuthenticated(w, r) {
+		return
+	}
 	id, ok := parseIntPath(w, rawID)
 	if !ok {
 		return
@@ -289,6 +306,9 @@ func (h *Handler) getMarginUser(w http.ResponseWriter, r *http.Request, rawID st
 }
 
 func (h *Handler) getMarginCompany(w http.ResponseWriter, r *http.Request, rawID string) {
+	if !h.requireAuthenticated(w, r) {
+		return
+	}
 	id, ok := parseIntPath(w, rawID)
 	if !ok {
 		return
@@ -314,6 +334,9 @@ func (h *Handler) defaultAccount(w http.ResponseWriter, r *http.Request, rawID s
 }
 
 func (h *Handler) buyOnMargin(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAuthenticated(w, r) {
+		return
+	}
 	var req service.StockMarginTransactionRequest
 	if !decode(w, r, &req) {
 		return
@@ -322,6 +345,9 @@ func (h *Handler) buyOnMargin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) sellOnMargin(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAuthenticated(w, r) {
+		return
+	}
 	var req service.StockMarginTransactionRequest
 	if !decode(w, r, &req) {
 		return
@@ -330,6 +356,9 @@ func (h *Handler) sellOnMargin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) addToMargin(w http.ResponseWriter, r *http.Request, rawID string) {
+	if !h.requireAuthenticated(w, r) {
+		return
+	}
 	id, ok := parseIntPath(w, rawID)
 	if !ok {
 		return
@@ -342,6 +371,9 @@ func (h *Handler) addToMargin(w http.ResponseWriter, r *http.Request, rawID stri
 }
 
 func (h *Handler) withdrawFromMargin(w http.ResponseWriter, r *http.Request, rawID string) {
+	if !h.requireAuthenticated(w, r) {
+		return
+	}
 	id, ok := parseIntPath(w, rawID)
 	if !ok {
 		return
@@ -354,11 +386,17 @@ func (h *Handler) withdrawFromMargin(w http.ResponseWriter, r *http.Request, raw
 }
 
 func (h *Handler) marginHistory(w http.ResponseWriter, r *http.Request, accountNumber string) {
+	if !h.requireAuthenticated(w, r) {
+		return
+	}
 	resp, err := h.services.MarginTx.History(r.Context(), accountNumber)
 	respond(w, resp, http.StatusOK, err)
 }
 
 func (h *Handler) reserveFunds(w http.ResponseWriter, r *http.Request) {
+	if !h.requireServiceRole(w, r) {
+		return
+	}
 	var req service.ReserveFundsRequest
 	if !decode(w, r, &req) {
 		return
@@ -368,16 +406,25 @@ func (h *Handler) reserveFunds(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) releaseFunds(w http.ResponseWriter, r *http.Request, id string) {
+	if !h.requireServiceRole(w, r) {
+		return
+	}
 	resp, err := h.services.Internal.ReleaseFunds(r.Context(), id, correlationID(r))
 	respond(w, resp, http.StatusOK, err)
 }
 
 func (h *Handler) commitFunds(w http.ResponseWriter, r *http.Request, id string) {
+	if !h.requireServiceRole(w, r) {
+		return
+	}
 	resp, err := h.services.Internal.CommitFunds(r.Context(), id, correlationID(r))
 	respond(w, resp, http.StatusOK, err)
 }
 
 func (h *Handler) internalTransfer(w http.ResponseWriter, r *http.Request) {
+	if !h.requireServiceRole(w, r) {
+		return
+	}
 	var req service.InternalTransferRequest
 	if !decode(w, r, &req) {
 		return
@@ -387,11 +434,17 @@ func (h *Handler) internalTransfer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) reverseTransfer(w http.ResponseWriter, r *http.Request, id string) {
+	if !h.requireServiceRole(w, r) {
+		return
+	}
 	resp, err := h.services.Internal.ReverseTransfer(r.Context(), id, correlationID(r))
 	respond(w, resp, http.StatusOK, err)
 }
 
 func (h *Handler) reserveMonas(w http.ResponseWriter, r *http.Request) {
+	if !h.requireServiceRole(w, r) {
+		return
+	}
 	var req service.ReserveMonasRequest
 	if !decode(w, r, &req) {
 		return
@@ -401,14 +454,23 @@ func (h *Handler) reserveMonas(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) commitMonas(w http.ResponseWriter, r *http.Request, id string) {
+	if !h.requireServiceRole(w, r) {
+		return
+	}
 	respondNoContent(w, h.services.Interbank.CommitReservation(r.Context(), id))
 }
 
 func (h *Handler) releaseMonas(w http.ResponseWriter, r *http.Request, id string) {
+	if !h.requireServiceRole(w, r) {
+		return
+	}
 	respondNoContent(w, h.services.Interbank.ReleaseReservation(r.Context(), id))
 }
 
 func (h *Handler) accountByOwner(w http.ResponseWriter, r *http.Request) {
+	if !h.requireServiceRole(w, r) {
+		return
+	}
 	ownerID, err := strconv.ParseInt(r.URL.Query().Get("ownerId"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "ERR_VALIDATION", "Neispravni podaci", "ownerId je obavezan")
@@ -419,6 +481,9 @@ func (h *Handler) accountByOwner(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) resolveInterbankAccount(w http.ResponseWriter, r *http.Request) {
+	if !h.requireServiceRole(w, r) {
+		return
+	}
 	resp, err := h.services.Interbank.ResolveAccount(r.Context(), r.URL.Query().Get("num"))
 	respond(w, resp, http.StatusOK, err)
 }
@@ -537,7 +602,7 @@ func writeError(w http.ResponseWriter, status int, code, title, desc string) {
 		"errorCode":  code,
 		"errorTitle": title,
 		"errorDesc":  desc,
-		"timestamp":  time.Now().Format(time.RFC3339Nano),
+		"timestamp":  time.Now().Format("2006-01-02T15:04:05.999999999"),
 	})
 }
 
@@ -578,7 +643,7 @@ func parseRawDecimal(raw json.RawMessage) (decimal.Decimal, error) {
 func isKnownPath(path string) bool {
 	switch path {
 	case
-		"/actuator/health/liveness", "/actuator/health/readiness", "/actuator/info",
+		"/actuator/health", "/actuator/health/liveness", "/actuator/health/readiness", "/actuator/info", "/actuator/prometheus",
 		"/verification/generate", "/verification/validate",
 		"/accounts/api/currencies/getAll", "/accounts/api/currencies/getAllPage", "/accounts/api/currencies",
 		"/accounts/employee/accounts/checking", "/accounts/employee/accounts/fx",

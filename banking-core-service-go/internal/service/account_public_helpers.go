@@ -376,7 +376,7 @@ func (s *AccountService) verificationVerified(ctx context.Context, sessionID int
 	if err != nil {
 		return false, err
 	}
-	if token, err := serviceJWT(s.cfg); err == nil {
+	if token, err := s.serviceToken(); err == nil {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := s.http.Do(req)
@@ -497,28 +497,28 @@ INSERT INTO payment_table (
 	return nil
 }
 
-func (s *AccountService) resolveOneSidedAccount(ctx context.Context, req OneSidedTransactionRequest) (string, int64, error) {
+func (s *AccountService) resolveOneSidedAccount(ctx context.Context, req OneSidedTransactionRequest) (accountBalanceRow, error) {
 	if strings.TrimSpace(req.AccountNumber) != "" {
 		row, err := s.getByNumber(ctx, s.db, req.AccountNumber, false)
 		if err != nil {
-			return "", 0, err
+			return accountBalanceRow{}, err
 		}
 		if err := row.validateMutable(req.AccountNumber, row.OwnerID); err != nil {
-			return "", 0, err
+			return accountBalanceRow{}, err
 		}
-		return row.AccountNumber, row.OwnerID, nil
+		return row, nil
 	}
 	if req.AccountID != nil {
 		row, err := s.getByID(ctx, s.db, *req.AccountID)
 		if err != nil {
-			return "", 0, err
+			return accountBalanceRow{}, err
 		}
 		if err := row.validateMutable(row.AccountNumber, row.OwnerID); err != nil {
-			return "", 0, err
+			return accountBalanceRow{}, err
 		}
-		return row.AccountNumber, row.OwnerID, nil
+		return row, nil
 	}
-	return "", 0, BadRequest("OneSidedTransactionDto mora imati accountNumber ili accountId")
+	return accountBalanceRow{}, BadRequest("OneSidedTransactionDto mora imati accountNumber ili accountId")
 }
 
 func formatDateTime(value sql.NullTime) string {

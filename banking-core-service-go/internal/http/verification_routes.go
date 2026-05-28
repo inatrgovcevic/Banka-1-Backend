@@ -7,7 +7,7 @@ import (
 )
 
 func (h *Handler) verificationGenerate(w http.ResponseWriter, r *http.Request) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}

@@ -12,6 +12,7 @@ import (
 
 type Container struct {
 	Config config.Config
+	DB     *sql.DB
 
 	Accounts          *AccountService
 	MarginAccounts    *MarginAccountService
@@ -25,6 +26,7 @@ type Container struct {
 	ExternalTransfers *ExternalTransferService
 	Gdpr              *GdprService
 	Rabbit            *RabbitPublisher
+	Scheduled         *ScheduledJobs
 	Cards             CardServices
 }
 
@@ -50,6 +52,7 @@ func NewContainer(cfg config.Config, db *sql.DB) *Container {
 	accountSvc.SetAutomaticCardCreator(cardSvc)
 	return &Container{
 		Config:            cfg,
+		DB:                db,
 		Accounts:          accountSvc,
 		MarginAccounts:    marginAccounts,
 		MarginTx:          NewMarginTransactionService(db, cfg, accountSvc, marginAccounts),
@@ -62,6 +65,7 @@ func NewContainer(cfg config.Config, db *sql.DB) *Container {
 		ExternalTransfers: externalTransfers,
 		Gdpr:              gdprSvc,
 		Rabbit:            rabbit,
+		Scheduled:         NewScheduledJobs(db, cfg),
 		Cards: CardServices{
 			LuhnValidator:           card.LuhnValidator{},
 			BrandDetector:           card.BrandDetector{},
@@ -80,5 +84,8 @@ func (c *Container) StartBackground(ctx context.Context) {
 	}
 	if c.Gdpr != nil {
 		c.Gdpr.Start(ctx)
+	}
+	if c.Scheduled != nil {
+		c.Scheduled.Start(ctx)
 	}
 }

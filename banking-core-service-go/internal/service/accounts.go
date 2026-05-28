@@ -23,6 +23,7 @@ type AccountService struct {
 	cfg            config.Config
 	random         *rand.Rand
 	http           *http.Client
+	tokenCache     *ServiceTokenCache
 	rabbit         *RabbitPublisher
 	automaticCards AutomaticCardCreator
 }
@@ -44,39 +45,47 @@ type AccountDetails struct {
 }
 
 type accountBalanceRow struct {
-	ID                    int64
-	AccountNumber         string
-	OwnerID               int64
-	Currency              string
-	AvailableBalance      decimal.Decimal
-	BookedBalance         decimal.Decimal
-	Status                string
-	AccountType           string
-	Email                 string
-	Username              string
-	DailyLimit            decimal.Decimal
-	MonthlyLimit          decimal.Decimal
-	DailySpending         decimal.Decimal
-	MonthlySpending       decimal.Decimal
-	HasDailyLimit         bool
-	HasMonthlyLimit       bool
-	ExpiresAt             sql.NullTime
-	DailyLimitRemaining   decimal.Decimal
+	ID                     int64
+	AccountNumber          string
+	OwnerID                int64
+	Currency               string
+	AvailableBalance       decimal.Decimal
+	BookedBalance          decimal.Decimal
+	Status                 string
+	AccountType            string
+	Email                  string
+	Username               string
+	DailyLimit             decimal.Decimal
+	MonthlyLimit           decimal.Decimal
+	DailySpending          decimal.Decimal
+	MonthlySpending        decimal.Decimal
+	HasDailyLimit          bool
+	HasMonthlyLimit        bool
+	ExpiresAt              sql.NullTime
+	DailyLimitRemaining    decimal.Decimal
 	HasDailyLimitRemaining bool
 }
 
 func NewAccountService(db *sql.DB, cfg config.Config, rabbit *RabbitPublisher) *AccountService {
 	return &AccountService{
-		db:     db,
-		cfg:    cfg,
-		random: rand.New(rand.NewSource(time.Now().UnixNano())),
-		http:   &http.Client{Timeout: 10 * time.Second},
-		rabbit: rabbit,
+		db:         db,
+		cfg:        cfg,
+		random:     rand.New(rand.NewSource(time.Now().UnixNano())),
+		http:       &http.Client{Timeout: 10 * time.Second},
+		tokenCache: NewServiceTokenCache(cfg),
+		rabbit:     rabbit,
 	}
 }
 
 func (s *AccountService) SetAutomaticCardCreator(creator AutomaticCardCreator) {
 	s.automaticCards = creator
+}
+
+func (s *AccountService) serviceToken() (string, error) {
+	if s.tokenCache != nil {
+		return s.tokenCache.Token()
+	}
+	return serviceJWT(s.cfg)
 }
 
 func (s *AccountService) GetByNumber(ctx context.Context, accountNumber string) (AccountDetails, error) {

@@ -13,9 +13,10 @@ import (
 type RabbitPublisher struct {
 	cfg config.Config
 
-	mu      sync.Mutex
-	conn    *amqp.Connection
-	channel *amqp.Channel
+	mu                sync.Mutex
+	conn              *amqp.Connection
+	channel           *amqp.Channel
+	declaredExchanges map[string]bool
 }
 
 func NewRabbitPublisher(cfg config.Config) *RabbitPublisher {
@@ -66,6 +67,17 @@ func (p *RabbitPublisher) PublishJSONBestEffort(ctx context.Context, exchange, r
 	_ = p.PublishJSON(ctx, exchange, routingKey, payload)
 }
 
+func (p *RabbitPublisher) Check() error {
+	if p == nil {
+		return nil
+	}
+	exchange := p.cfg.NotificationExchange
+	if exchange == "" {
+		exchange = p.cfg.TransferRetryExchange
+	}
+	return p.ensureChannel(exchange)
+}
+
 func (p *RabbitPublisher) Close() error {
 	if p == nil {
 		return nil
@@ -94,7 +106,7 @@ func (p *RabbitPublisher) ensureChannel(exchange string) error {
 
 func (p *RabbitPublisher) ensureChannelLocked(exchange string) error {
 	if p.conn != nil && !p.conn.IsClosed() && p.channel != nil {
-		return nil
+		return p.ensureExchangeLocked(exchange)
 	}
 	conn, err := amqp.Dial(p.cfg.RabbitURL())
 	if err != nil {
@@ -105,12 +117,33 @@ func (p *RabbitPublisher) ensureChannelLocked(exchange string) error {
 		_ = conn.Close()
 		return err
 	}
-	if err := channel.ExchangeDeclare(exchange, "topic", true, false, false, false, nil); err != nil {
-		_ = channel.Close()
-		_ = conn.Close()
-		return err
-	}
 	p.conn = conn
 	p.channel = channel
+	p.declaredExchanges = map[string]bool{}
+	if err := p.ensureExchangeLocked(exchange); err != nil {
+		_ = channel.Close()
+		_ = conn.Close()
+		p.channel = nil
+		p.conn = nil
+		p.declaredExchanges = nil
+		return err
+	}
+	return nil
+}
+
+func (p *RabbitPublisher) ensureExchangeLocked(exchange string) error {
+	if exchange == "" {
+		return nil
+	}
+	if p.declaredExchanges == nil {
+		p.declaredExchanges = map[string]bool{}
+	}
+	if p.declaredExchanges[exchange] {
+		return nil
+	}
+	if err := p.channel.ExchangeDeclare(exchange, "topic", true, false, false, false, nil); err != nil {
+		return err
+	}
+	p.declaredExchanges[exchange] = true
 	return nil
 }

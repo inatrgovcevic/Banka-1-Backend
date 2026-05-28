@@ -652,14 +652,44 @@ func (s *AccountService) Info(ctx context.Context, fromNumber, toNumber string) 
 }
 
 func (s *AccountService) Transaction(ctx context.Context, req PaymentRequest, sameOwnerRequired bool) (UpdatedBalanceResponse, error) {
-	return s.applyPaymentOperation(ctx, req, sameOwnerRequired, true)
+	resp, err := s.applyPaymentOperation(ctx, req, sameOwnerRequired)
+	if err != nil {
+		return UpdatedBalanceResponse{}, err
+	}
+	// Java: balansni update commit-uje u svojoj tx; recordPayment je odvojen i best-effort.
+	s.recordTransferPayment(ctx, req, sameOwnerRequired)
+	return resp, nil
 }
 
 func (s *AccountService) ApplyPaymentWithoutRecord(ctx context.Context, req PaymentRequest, sameOwnerRequired bool) (UpdatedBalanceResponse, error) {
-	return s.applyPaymentOperation(ctx, req, sameOwnerRequired, false)
+	return s.applyPaymentOperation(ctx, req, sameOwnerRequired)
 }
 
-func (s *AccountService) applyPaymentOperation(ctx context.Context, req PaymentRequest, sameOwnerRequired bool, record bool) (UpdatedBalanceResponse, error) {
+// recordTransferPayment upisuje payment_table audit red ("Transfer"/"Payment") u
+// odvojenoj transakciji. Best-effort: neuspeh ne utice na vec commit-ovan balans.
+func (s *AccountService) recordTransferPayment(ctx context.Context, req PaymentRequest, sameOwner bool) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	from, err := s.getByNumber(ctx, tx, req.FromAccountNumber, false)
+	if err != nil {
+		return
+	}
+	to, err := s.getByNumber(ctx, tx, req.ToAccountNumber, false)
+	if err != nil {
+		return
+	}
+	purpose := "Payment"
+	if sameOwner {
+		purpose = "Transfer"
+	}
+	_ = s.recordPayment(ctx, tx, from, to, req.FromAmount, req.ToAmount, req.Commission, purpose, "")
+	_ = tx.Commit()
+}
+
+func (s *AccountService) applyPaymentOperation(ctx context.Context, req PaymentRequest, sameOwnerRequired bool) (UpdatedBalanceResponse, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return UpdatedBalanceResponse{}, err
@@ -688,11 +718,6 @@ func (s *AccountService) applyPaymentOperation(ctx context.Context, req PaymentR
 	}
 	if err := s.applyPaymentTx(ctx, tx, from, to, req); err != nil {
 		return UpdatedBalanceResponse{}, err
-	}
-	if record {
-		if err := s.recordPayment(ctx, tx, from, to, req.FromAmount, req.ToAmount, req.Commission, map[bool]string{true: "Transfer", false: "Payment"}[sameOwnerRequired], ""); err != nil {
-			return UpdatedBalanceResponse{}, err
-		}
 	}
 	finalFrom, _ := s.getByNumber(ctx, tx, from.AccountNumber, false)
 	finalTo, _ := s.getByNumber(ctx, tx, to.AccountNumber, false)
@@ -754,27 +779,62 @@ func (s *AccountService) DebitBank(ctx context.Context, currency string, amount 
 }
 
 func (s *AccountService) ExchangeBuy(ctx context.Context, req OneSidedTransactionRequest) (UpdatedBalanceResponse, error) {
-	accountNumber, ownerID, err := s.resolveOneSidedAccount(ctx, req)
-	if err != nil {
-		return UpdatedBalanceResponse{}, err
-	}
-	if err := s.Debit(ctx, accountNumber, req.Amount, ownerID); err != nil {
-		return UpdatedBalanceResponse{}, err
-	}
-	acc, _ := s.getByNumber(ctx, s.db, accountNumber, false)
-	return UpdatedBalanceResponse{SenderBalance: acc.AvailableBalance}, nil
+	return s.exchangeOneSided(ctx, req, true)
 }
 
 func (s *AccountService) ExchangeSell(ctx context.Context, req OneSidedTransactionRequest) (UpdatedBalanceResponse, error) {
-	accountNumber, ownerID, err := s.resolveOneSidedAccount(ctx, req)
+	return s.exchangeOneSided(ctx, req, false)
+}
+
+// exchangeOneSided portuje exchangeBuy/exchangeSell iz AccountServiceImplementation:
+// jednostrani debit/credit klijentskog racuna (trade-leg) + audit zapis u payment_table
+// ("Stock purchase"/"Stock sale"). Balans se azurira u svojoj transakciji, a payment
+// zapis je best-effort u odvojenoj transakciji (Java: "balance update has already
+// committed ... must not be rolled back").
+func (s *AccountService) exchangeOneSided(ctx context.Context, req OneSidedTransactionRequest, buy bool) (UpdatedBalanceResponse, error) {
+	account, err := s.resolveOneSidedAccount(ctx, req)
 	if err != nil {
 		return UpdatedBalanceResponse{}, err
 	}
-	if err := s.Credit(ctx, accountNumber, req.Amount, ownerID); err != nil {
-		return UpdatedBalanceResponse{}, err
+	if req.Amount.Sign() <= 0 {
+		return UpdatedBalanceResponse{}, BadRequest("Iznos mora biti pozitivan")
 	}
-	acc, _ := s.getByNumber(ctx, s.db, accountNumber, false)
+	if buy {
+		if err := s.Debit(ctx, account.AccountNumber, req.Amount, account.OwnerID); err != nil {
+			return UpdatedBalanceResponse{}, err
+		}
+	} else {
+		if err := s.Credit(ctx, account.AccountNumber, req.Amount, account.OwnerID); err != nil {
+			return UpdatedBalanceResponse{}, err
+		}
+	}
+	s.recordExchangePayment(ctx, account.AccountNumber, account.Currency, req.Amount, buy)
+	acc, _ := s.getByNumber(ctx, s.db, account.AccountNumber, false)
 	return UpdatedBalanceResponse{SenderBalance: acc.AvailableBalance}, nil
+}
+
+// recordExchangePayment upisuje payment_table audit red za exchange buy/sell.
+// Best-effort: neuspeh se ignorise i ne utice na vec commit-ovan balans.
+func (s *AccountService) recordExchangePayment(ctx context.Context, accountNumber, currency string, amount decimal.Decimal, buy bool) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	account, err := s.getByNumber(ctx, tx, accountNumber, false)
+	if err != nil {
+		return
+	}
+	bank, err := s.getByOwnerAndCurrency(ctx, tx, -1, currency, false)
+	if err != nil {
+		return
+	}
+	if buy {
+		_ = s.recordPayment(ctx, tx, account, bank, amount, amount, decimal.Zero, "Stock purchase", "")
+	} else {
+		_ = s.recordPayment(ctx, tx, bank, account, amount, amount, decimal.Zero, "Stock sale", "")
+	}
+	_ = tx.Commit()
 }
 
 func (s *AccountService) CreateSystemAccount(ctx context.Context, req CreateSystemAccountRequest) (AccountDetails, error) {
@@ -843,7 +903,7 @@ func (s *AccountService) resolveClient(ctx context.Context, id *int64, jmbg stri
 	if err != nil {
 		return clientInfo{}, err
 	}
-	if token, err := serviceJWT(s.cfg); err == nil {
+	if token, err := s.serviceToken(); err == nil {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := s.http.Do(req)

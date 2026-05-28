@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"strings"
 
 	"banka1/banking-core-service-go/internal/config"
 
@@ -24,13 +26,54 @@ func Open(ctx context.Context, cfg config.Config) (*sql.DB, error) {
 }
 
 func Migrate(ctx context.Context, conn *sql.DB, cfg config.Config) error {
-	if _, err := conn.ExecContext(ctx, schemaSQL); err != nil {
+	if err := execStatements(ctx, conn, schemaSQL); err != nil {
 		return err
 	}
-	if _, err := conn.ExecContext(ctx, seedSQL, cfg.BankAccountNumber, cfg.BankClientID, cfg.ExchangeAccountNumber, cfg.ExchangeClientID); err != nil {
+	if err := seed(ctx, conn, cfg); err != nil {
 		return err
 	}
 	return nil
+}
+
+func execStatements(ctx context.Context, conn *sql.DB, script string) error {
+	for _, statement := range strings.Split(script, ";") {
+		statement = strings.TrimSpace(statement)
+		if statement == "" {
+			continue
+		}
+		if _, err := conn.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("execute migration statement %q: %w", previewSQL(statement), err)
+		}
+	}
+	return nil
+}
+
+func seed(ctx context.Context, conn *sql.DB, cfg config.Config) error {
+	statements := []struct {
+		sql  string
+		args []any
+	}{
+		{sql: seedCurrenciesSQL},
+		{sql: seedActivitiesSQL},
+		{sql: seedBankAccountSQL, args: []any{cfg.BankAccountNumber, cfg.BankClientID}},
+		{sql: seedExchangeAccountSQL, args: []any{cfg.ExchangeAccountNumber, cfg.ExchangeClientID}},
+		{sql: seedBankCurrencyAccountsSQL},
+		{sql: seedStateCurrencyAccountsSQL},
+	}
+	for _, statement := range statements {
+		if _, err := conn.ExecContext(ctx, statement.sql, statement.args...); err != nil {
+			return fmt.Errorf("execute seed statement %q: %w", previewSQL(statement.sql), err)
+		}
+	}
+	return nil
+}
+
+func previewSQL(statement string) string {
+	compact := strings.Join(strings.Fields(statement), " ")
+	if len(compact) > 100 {
+		return compact[:100] + "..."
+	}
+	return compact
 }
 
 const schemaSQL = `
@@ -214,6 +257,12 @@ CREATE TABLE IF NOT EXISTS margin_accounts (
     version BIGINT NOT NULL DEFAULT 0
 );
 
+CREATE INDEX IF NOT EXISTS idx_margin_accounts_owner_kind
+    ON margin_accounts(owner_kind);
+CREATE INDEX IF NOT EXISTS idx_margin_accounts_active
+    ON margin_accounts(active)
+    WHERE deleted = false;
+
 CREATE TABLE IF NOT EXISTS user_margin_accounts (
     id BIGINT NOT NULL PRIMARY KEY REFERENCES margin_accounts(id),
     user_id BIGINT NOT NULL UNIQUE
@@ -255,6 +304,11 @@ CREATE TABLE IF NOT EXISTS fund_reservations (
     committed_at TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS idx_fund_reservations_correlation
+    ON fund_reservations(correlation_id);
+CREATE INDEX IF NOT EXISTS idx_fund_reservations_owner_status
+    ON fund_reservations(owner_id, status);
+
 CREATE TABLE IF NOT EXISTS internal_transfer_log (
     id BIGSERIAL PRIMARY KEY,
     transfer_id UUID NOT NULL UNIQUE,
@@ -267,6 +321,9 @@ CREATE TABLE IF NOT EXISTS internal_transfer_log (
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     reversed_at TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_internal_transfer_correlation
+    ON internal_transfer_log(correlation_id);
 
 CREATE TABLE IF NOT EXISTS interbank_reservations (
     id BIGSERIAL PRIMARY KEY,
@@ -400,9 +457,23 @@ CREATE TABLE IF NOT EXISTS transfers (
 CREATE INDEX IF NOT EXISTS idx_transfers_client_id ON transfers(client_id);
 CREATE INDEX IF NOT EXISTS idx_transfers_order_number ON transfers(order_number);
 CREATE INDEX IF NOT EXISTS idx_transfers_accounts ON transfers(from_account_number, to_account_number);
+
+CREATE TABLE IF NOT EXISTS transaction_record_table (
+    id BIGSERIAL PRIMARY KEY,
+    version BIGINT DEFAULT 0,
+    account_number VARCHAR(255) NOT NULL,
+    bank_account_number VARCHAR(255) NOT NULL,
+    amount NUMERIC(19,2) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_transaction_record_account_number
+    ON transaction_record_table(account_number);
+CREATE INDEX IF NOT EXISTS idx_transaction_record_created_at
+    ON transaction_record_table(created_at);
 `
 
-const seedSQL = `
+const seedCurrenciesSQL = `
 INSERT INTO currency_table (naziv, oznaka, simbol, opis, status)
 VALUES
     ('Serbian dinar', 'RSD', 'RSD', 'Serbian dinar', 'ACTIVE'),
@@ -413,15 +484,19 @@ VALUES
     ('Japanese yen', 'JPY', 'JPY', 'Japanese yen', 'ACTIVE'),
     ('Canadian dollar', 'CAD', 'CAD', 'Canadian dollar', 'ACTIVE'),
     ('Australian dollar', 'AUD', 'AUD', 'Australian dollar', 'ACTIVE')
-ON CONFLICT (oznaka) DO NOTHING;
+ON CONFLICT (oznaka) DO NOTHING
+`
 
+const seedActivitiesSQL = `
 INSERT INTO sifra_delatnosti_table (sifra, grana)
 VALUES
     ('6201', 'Racunarsko programiranje'),
     ('6419', 'Ostalo monetarno posredovanje'),
     ('7022', 'Konsultantske aktivnosti')
-ON CONFLICT (sifra) DO NOTHING;
+ON CONFLICT (sifra) DO NOTHING
+`
 
+const seedBankAccountSQL = `
 INSERT INTO account_table (
     broj_racuna, ime_vlasnika_racuna, prezime_vlasnika_racuna, naziv_racuna,
     vlasnik, zaposlen, stanje, raspolozivo_stanje, currency_id, status,
@@ -431,19 +506,23 @@ SELECT $1, 'Banka', 'Banka', 'Banka RSD', $2, -1, 1000000000, 1000000000, c.id,
        'ACTIVE', 0, 0, 'CHECKING', 'BUSINESS'
   FROM currency_table c
  WHERE c.oznaka = 'RSD'
-ON CONFLICT (broj_racuna) DO NOTHING;
+ON CONFLICT (broj_racuna) DO NOTHING
+`
 
+const seedExchangeAccountSQL = `
 INSERT INTO account_table (
     broj_racuna, ime_vlasnika_racuna, prezime_vlasnika_racuna, naziv_racuna,
     vlasnik, zaposlen, stanje, raspolozivo_stanje, currency_id, status,
     dnevna_potrosnja, mesecna_potrosnja, account_type, account_ownership_type
 )
-SELECT $3, 'Exchange', 'Exchange', 'Exchange RSD', $4, -1, 1000000000, 1000000000, c.id,
+SELECT $1, 'Exchange', 'Exchange', 'Exchange RSD', $2, -1, 1000000000, 1000000000, c.id,
        'ACTIVE', 0, 0, 'CHECKING', 'BUSINESS'
   FROM currency_table c
  WHERE c.oznaka = 'RSD'
-ON CONFLICT (broj_racuna) DO NOTHING;
+ON CONFLICT (broj_racuna) DO NOTHING
+`
 
+const seedBankCurrencyAccountsSQL = `
 INSERT INTO account_table (
     broj_racuna, ime_vlasnika_racuna, prezime_vlasnika_racuna, naziv_racuna,
     vlasnik, zaposlen, stanje, raspolozivo_stanje, currency_id, status,
@@ -457,8 +536,10 @@ SELECT '1110001' || (100000000 + c.id)::text || '12',
  WHERE NOT EXISTS (
        SELECT 1 FROM account_table a WHERE a.vlasnik = -1 AND a.currency_id = c.id
  )
-ON CONFLICT (broj_racuna) DO NOTHING;
+ON CONFLICT (broj_racuna) DO NOTHING
+`
 
+const seedStateCurrencyAccountsSQL = `
 INSERT INTO account_table (
     broj_racuna, ime_vlasnika_racuna, prezime_vlasnika_racuna, naziv_racuna,
     vlasnik, zaposlen, stanje, raspolozivo_stanje, currency_id, status,
@@ -472,5 +553,5 @@ SELECT '1110001' || (200000000 + c.id)::text || '12',
  WHERE NOT EXISTS (
        SELECT 1 FROM account_table a WHERE a.vlasnik = -2 AND a.currency_id = c.id
  )
-ON CONFLICT (broj_racuna) DO NOTHING;
+ON CONFLICT (broj_racuna) DO NOTHING
 `

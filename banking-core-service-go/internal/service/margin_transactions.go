@@ -34,7 +34,7 @@ type MarginTransactionHistoryItem struct {
 	AccountNumber   string          `json:"accountNumber"`
 	Amount          decimal.Decimal `json:"amount"`
 	TransactionType string          `json:"transactionType"`
-	OccurredAt      time.Time       `json:"occurredAt"`
+	OccurredAt      string          `json:"occurredAt"`
 	Description     string          `json:"description,omitempty"`
 }
 
@@ -78,7 +78,7 @@ func (s *MarginTransactionService) BuyOnMargin(ctx context.Context, req StockMar
 		return err
 	}
 	if err := s.recordMarginTx(ctx, tx, acc, req.Amount.Neg(), "STOCK_BUY",
-		fmt.Sprintf("Buy on margin: bank=%s client=%s bankTxId=%d", bankPart.String(), clientPart.String(), txID)); err != nil {
+		fmt.Sprintf("Buy on margin: bank=%s client=%s bankTxId=%d", bankPart.Fixed(2), clientPart.Fixed(2), txID)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -111,18 +111,19 @@ func (s *MarginTransactionService) SellOnMargin(ctx context.Context, req StockMa
 	acc.InitialMargin = acc.InitialMargin.Add(clientCredit)
 	s.marginAccounts.recalcActive(&acc)
 
-	var txID int64
+	txIDText := "null"
 	if loanReduction.Sign() > 0 {
-		txID, err = s.receiveFromExchange(ctx, tx, loanReduction)
+		txID, err := s.receiveFromExchange(ctx, tx, loanReduction)
 		if err != nil {
 			return err
 		}
+		txIDText = fmt.Sprintf("%d", txID)
 	}
 	if err := s.marginAccounts.updateAccountTx(ctx, tx, acc); err != nil {
 		return err
 	}
 	if err := s.recordMarginTx(ctx, tx, acc, req.Amount, "STOCK_SELL",
-		fmt.Sprintf("Sell on margin: loan-reduction=%s client-credit=%s bankTxId=%d", loanReduction.String(), clientCredit.String(), txID)); err != nil {
+		fmt.Sprintf("Sell on margin: loan-reduction=%s client-credit=%s bankTxId=%s", loanReduction.Fixed(2), clientCredit.Fixed(2), txIDText)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -215,9 +216,11 @@ SELECT id, account_number, amount, transaction_type, occurred_at, COALESCE(descr
 	var out []MarginTransactionHistoryItem
 	for rows.Next() {
 		var item MarginTransactionHistoryItem
-		if err := rows.Scan(&item.ID, &item.AccountNumber, &item.Amount, &item.TransactionType, &item.OccurredAt, &item.Description); err != nil {
+		var occurredAt time.Time
+		if err := rows.Scan(&item.ID, &item.AccountNumber, &item.Amount, &item.TransactionType, &occurredAt, &item.Description); err != nil {
 			return nil, err
 		}
+		item.OccurredAt = formatDateTime(sql.NullTime{Time: occurredAt, Valid: true})
 		out = append(out, item)
 	}
 	return out, rows.Err()

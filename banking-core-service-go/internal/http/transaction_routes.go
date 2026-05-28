@@ -12,7 +12,7 @@ import (
 )
 
 func (h *Handler) newPayment(w http.ResponseWriter, r *http.Request) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -44,7 +44,7 @@ func (h *Handler) transactionsByClient(w http.ResponseWriter, r *http.Request, m
 }
 
 func (h *Handler) transactionsByThisClient(w http.ResponseWriter, r *http.Request, mode string) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -63,7 +63,7 @@ func (h *Handler) transactionsByThisClient(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) transactionsForAccount(w http.ResponseWriter, r *http.Request, accountNumber string, employeeAccess bool) {
-	principal, ok := principalFromRequest(w, r, !employeeAccess)
+	principal, ok := h.principalFromRequest(w, r, !employeeAccess)
 	if !ok {
 		return
 	}
@@ -73,7 +73,7 @@ func (h *Handler) transactionsForAccount(w http.ResponseWriter, r *http.Request,
 }
 
 func (h *Handler) findPayments(w http.ResponseWriter, r *http.Request) {
-	principal, ok := principalFromRequest(w, r, false)
+	principal, ok := h.principalFromRequest(w, r, false)
 	if !ok {
 		return
 	}
@@ -87,7 +87,7 @@ func (h *Handler) findPayments(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) paymentRecipientsList(w http.ResponseWriter, r *http.Request) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -98,7 +98,7 @@ func (h *Handler) paymentRecipientsList(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) paymentRecipientCreate(w http.ResponseWriter, r *http.Request) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -111,7 +111,7 @@ func (h *Handler) paymentRecipientCreate(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) paymentRecipientUpdate(w http.ResponseWriter, r *http.Request, rawID string) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -128,7 +128,7 @@ func (h *Handler) paymentRecipientUpdate(w http.ResponseWriter, r *http.Request,
 }
 
 func (h *Handler) paymentRecipientDelete(w http.ResponseWriter, r *http.Request, rawID string) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -140,7 +140,7 @@ func (h *Handler) paymentRecipientDelete(w http.ResponseWriter, r *http.Request,
 }
 
 func (h *Handler) executeTransfer(w http.ResponseWriter, r *http.Request) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -153,7 +153,7 @@ func (h *Handler) executeTransfer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listTransfers(w http.ResponseWriter, r *http.Request) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -168,7 +168,7 @@ func (h *Handler) listTransfers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) transferDetails(w http.ResponseWriter, r *http.Request, orderNumber string) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -177,7 +177,7 @@ func (h *Handler) transferDetails(w http.ResponseWriter, r *http.Request, orderN
 }
 
 func (h *Handler) transfersForAccount(w http.ResponseWriter, r *http.Request, accountNumber string) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}

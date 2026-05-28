@@ -16,16 +16,16 @@ type MarginAccountService struct {
 }
 
 type CreateUserMarginAccountRequest struct {
-	EmployeeID        int64           `json:"employeeId"`
-	UserID            int64           `json:"userId"`
+	EmployeeID        *int64          `json:"employeeId"`
+	UserID            *int64          `json:"userId"`
 	InitialMargin     decimal.Decimal `json:"initialMargin"`
 	MaintenanceMargin decimal.Decimal `json:"maintenanceMargin"`
 	BankParticipation decimal.Decimal `json:"bankParticipation"`
 }
 
 type CreateCompanyMarginAccountRequest struct {
-	EmployeeID        int64           `json:"employeeId"`
-	CompanyID         int64           `json:"companyId"`
+	EmployeeID        *int64          `json:"employeeId"`
+	CompanyID         *int64          `json:"companyId"`
 	InitialMargin     decimal.Decimal `json:"initialMargin"`
 	MaintenanceMargin decimal.Decimal `json:"maintenanceMargin"`
 	BankParticipation decimal.Decimal `json:"bankParticipation"`
@@ -60,21 +60,25 @@ func NewMarginAccountService(db *sql.DB, generator account.NumberGenerator) *Mar
 }
 
 func (s *MarginAccountService) CreateForUser(ctx context.Context, req CreateUserMarginAccountRequest) (MarginAccountResponse, error) {
+	if req.EmployeeID == nil || req.UserID == nil {
+		return MarginAccountResponse{}, BadRequest("employeeId i userId su obavezni")
+	}
 	if err := validateMarginCreate(req.InitialMargin, req.MaintenanceMargin, req.BankParticipation); err != nil {
 		return MarginAccountResponse{}, err
 	}
+	userID := *req.UserID
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return MarginAccountResponse{}, err
 	}
 	defer tx.Rollback()
 
-	exists, err := existsByInt64(ctx, tx, "SELECT EXISTS (SELECT 1 FROM user_margin_accounts WHERE user_id = $1)", req.UserID)
+	exists, err := existsByInt64(ctx, tx, "SELECT EXISTS (SELECT 1 FROM user_margin_accounts WHERE user_id = $1)", userID)
 	if err != nil {
 		return MarginAccountResponse{}, err
 	}
 	if exists {
-		return MarginAccountResponse{}, Conflict("ERR_MARGIN_ACCOUNT_EXISTS", "Marzni racun vec postoji", "Korisnik %d vec ima marzni racun (spec: max jedan po klijentu).", req.UserID)
+		return MarginAccountResponse{}, Conflict("ERR_MARGIN_ACCOUNT_EXISTS", "Marzni racun vec postoji", "Korisnik %d vec ima marzni racun (spec: max jedan po klijentu).", userID)
 	}
 
 	accountNumber, err := s.generator.Generate()
@@ -92,31 +96,35 @@ RETURNING id
 `, req.InitialMargin, req.MaintenanceMargin, req.BankParticipation, accountNumber, active).Scan(&id); err != nil {
 		return MarginAccountResponse{}, err
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO user_margin_accounts (id, user_id) VALUES ($1, $2)", id, req.UserID); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO user_margin_accounts (id, user_id) VALUES ($1, $2)", id, userID); err != nil {
 		return MarginAccountResponse{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return MarginAccountResponse{}, err
 	}
-	return s.FindByUserID(ctx, req.UserID)
+	return s.FindByUserID(ctx, userID)
 }
 
 func (s *MarginAccountService) CreateForCompany(ctx context.Context, req CreateCompanyMarginAccountRequest) (MarginAccountResponse, error) {
+	if req.EmployeeID == nil || req.CompanyID == nil {
+		return MarginAccountResponse{}, BadRequest("employeeId i companyId su obavezni")
+	}
 	if err := validateMarginCreate(req.InitialMargin, req.MaintenanceMargin, req.BankParticipation); err != nil {
 		return MarginAccountResponse{}, err
 	}
+	companyID := *req.CompanyID
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return MarginAccountResponse{}, err
 	}
 	defer tx.Rollback()
 
-	exists, err := existsByInt64(ctx, tx, "SELECT EXISTS (SELECT 1 FROM company_margin_accounts WHERE company_id = $1)", req.CompanyID)
+	exists, err := existsByInt64(ctx, tx, "SELECT EXISTS (SELECT 1 FROM company_margin_accounts WHERE company_id = $1)", companyID)
 	if err != nil {
 		return MarginAccountResponse{}, err
 	}
 	if exists {
-		return MarginAccountResponse{}, Conflict("ERR_MARGIN_ACCOUNT_EXISTS", "Marzni racun vec postoji", "Kompanija %d vec ima marzni racun (spec: max jedan po kompaniji).", req.CompanyID)
+		return MarginAccountResponse{}, Conflict("ERR_MARGIN_ACCOUNT_EXISTS", "Marzni racun vec postoji", "Kompanija %d vec ima marzni racun (spec: max jedan po kompaniji).", companyID)
 	}
 
 	accountNumber, err := s.generator.Generate()
@@ -134,13 +142,13 @@ RETURNING id
 `, req.InitialMargin, req.MaintenanceMargin, req.BankParticipation, accountNumber, active).Scan(&id); err != nil {
 		return MarginAccountResponse{}, err
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO company_margin_accounts (id, company_id) VALUES ($1, $2)", id, req.CompanyID); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO company_margin_accounts (id, company_id) VALUES ($1, $2)", id, companyID); err != nil {
 		return MarginAccountResponse{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return MarginAccountResponse{}, err
 	}
-	return s.FindByCompanyID(ctx, req.CompanyID)
+	return s.FindByCompanyID(ctx, companyID)
 }
 
 func (s *MarginAccountService) FindByUserID(ctx context.Context, userID int64) (MarginAccountResponse, error) {

@@ -17,7 +17,7 @@ func (h *Handler) autoCreateCard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) requestPersonalCard(w http.ResponseWriter, r *http.Request) {
-	principal, ok := principalFromRequest(w, r, false)
+	principal, ok := h.principalFromRequest(w, r, false)
 	if !ok {
 		return
 	}
@@ -30,7 +30,7 @@ func (h *Handler) requestPersonalCard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) requestBusinessCard(w http.ResponseWriter, r *http.Request) {
-	principal, ok := principalFromRequest(w, r, false)
+	principal, ok := h.principalFromRequest(w, r, false)
 	if !ok {
 		return
 	}

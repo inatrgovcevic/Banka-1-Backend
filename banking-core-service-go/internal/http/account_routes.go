@@ -1,7 +1,6 @@
 package http
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -38,7 +37,7 @@ func (h *Handler) getCurrencyByPath(w http.ResponseWriter, r *http.Request, code
 }
 
 func (h *Handler) createCheckingAccount(w http.ResponseWriter, r *http.Request) {
-	principal, ok := principalFromRequest(w, r, false)
+	principal, ok := h.principalFromRequest(w, r, false)
 	if !ok {
 		return
 	}
@@ -51,7 +50,7 @@ func (h *Handler) createCheckingAccount(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) createFXAccount(w http.ResponseWriter, r *http.Request) {
-	principal, ok := principalFromRequest(w, r, false)
+	principal, ok := h.principalFromRequest(w, r, false)
 	if !ok {
 		return
 	}
@@ -133,7 +132,7 @@ func (h *Handler) updateEmployeeCompany(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *Handler) clientAccountsPage(w http.ResponseWriter, r *http.Request) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -143,7 +142,7 @@ func (h *Handler) clientAccountsPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) clientEditNameByNumber(w http.ResponseWriter, r *http.Request, accountNumber string) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -156,7 +155,7 @@ func (h *Handler) clientEditNameByNumber(w http.ResponseWriter, r *http.Request,
 }
 
 func (h *Handler) clientEditNameByID(w http.ResponseWriter, r *http.Request, rawID string) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -173,7 +172,7 @@ func (h *Handler) clientEditNameByID(w http.ResponseWriter, r *http.Request, raw
 }
 
 func (h *Handler) clientEditLimitsByID(w http.ResponseWriter, r *http.Request, rawID string) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -190,7 +189,7 @@ func (h *Handler) clientEditLimitsByID(w http.ResponseWriter, r *http.Request, r
 }
 
 func (h *Handler) clientEditLimitsByNumber(w http.ResponseWriter, r *http.Request, accountNumber string) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -203,7 +202,7 @@ func (h *Handler) clientEditLimitsByNumber(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) clientAccountDetailsByID(w http.ResponseWriter, r *http.Request, rawID string) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -216,7 +215,7 @@ func (h *Handler) clientAccountDetailsByID(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) clientAccountDetailsByNumber(w http.ResponseWriter, r *http.Request, accountNumber string) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -225,7 +224,7 @@ func (h *Handler) clientAccountDetailsByNumber(w http.ResponseWriter, r *http.Re
 }
 
 func (h *Handler) clientAccountCards(w http.ResponseWriter, r *http.Request, rawID string) {
-	principal, ok := principalFromRequest(w, r, true)
+	principal, ok := h.principalFromRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -380,123 +379,4 @@ func intQuery(r *http.Request, key string, fallback int) int {
 		return fallback
 	}
 	return value
-}
-
-func principalFromRequest(w http.ResponseWriter, r *http.Request, required bool) (service.Principal, bool) {
-	roles := rolesFromHeader(r)
-	for _, header := range []string{"X-User-Id", "X-Client-Id", "X-Owner-Id"} {
-		if value := strings.TrimSpace(r.Header.Get(header)); value != "" {
-			id, err := strconv.ParseInt(value, 10, 64)
-			if err == nil {
-				return service.Principal{ID: id, Roles: roles}, true
-			}
-		}
-	}
-	auth := strings.TrimSpace(r.Header.Get("Authorization"))
-	token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
-	if token != "" && token != auth {
-		if principal, ok := principalFromToken(token); ok {
-			if len(principal.Roles) == 0 {
-				principal.Roles = roles
-			}
-			return principal, true
-		}
-	}
-	if required {
-		writeError(w, http.StatusUnauthorized, "ERR_UNAUTHORIZED", "Pristup odbijen", "Nedostaje id korisnika")
-		return service.Principal{}, false
-	}
-	return service.Principal{}, true
-}
-
-func principalIDFromToken(token string) (int64, bool) {
-	principal, ok := principalFromToken(token)
-	return principal.ID, ok
-}
-
-func principalFromToken(token string) (service.Principal, bool) {
-	parts := strings.Split(token, ".")
-	if len(parts) < 2 {
-		return service.Principal{}, false
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		payload, err = base64.URLEncoding.DecodeString(parts[1])
-		if err != nil {
-			return service.Principal{}, false
-		}
-	}
-	var claims map[string]any
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return service.Principal{}, false
-	}
-	var principal service.Principal
-	principal.Roles = claimAsStrings(claims["roles"])
-	for _, key := range []string{"id", "userId", "clientId", "client_id", "sub"} {
-		if id, ok := claimAsInt(claims[key]); ok {
-			principal.ID = id
-			return principal, true
-		}
-	}
-	return service.Principal{}, false
-}
-
-func claimAsInt(value any) (int64, bool) {
-	switch v := value.(type) {
-	case float64:
-		return int64(v), true
-	case int64:
-		return v, true
-	case json.Number:
-		id, err := v.Int64()
-		return id, err == nil
-	case string:
-		id, err := strconv.ParseInt(v, 10, 64)
-		return id, err == nil
-	default:
-		return 0, false
-	}
-}
-
-func rolesFromHeader(r *http.Request) []string {
-	for _, header := range []string{"X-User-Roles", "X-Roles"} {
-		raw := strings.TrimSpace(r.Header.Get(header))
-		if raw == "" {
-			continue
-		}
-		parts := strings.Split(raw, ",")
-		out := make([]string, 0, len(parts))
-		for _, part := range parts {
-			if trimmed := strings.TrimSpace(part); trimmed != "" {
-				out = append(out, trimmed)
-			}
-		}
-		return out
-	}
-	return nil
-}
-
-func claimAsStrings(value any) []string {
-	switch v := value.(type) {
-	case []any:
-		out := make([]string, 0, len(v))
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				out = append(out, s)
-			}
-		}
-		return out
-	case []string:
-		return v
-	case string:
-		if v == "" {
-			return nil
-		}
-		if strings.Contains(v, ",") {
-			return strings.Split(v, ",")
-		}
-		return []string{v}
-	default:
-		return nil
-	}
 }
