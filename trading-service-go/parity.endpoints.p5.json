@@ -1,0 +1,16 @@
+[
+  { "name": "funds-discovery",                   "method": "GET", "path": "/funds" },
+  { "name": "funds-discovery-by-name-asc",        "method": "GET", "path": "/funds?sortField=NAME&sortDirection=ASC" },
+  { "name": "funds-discovery-by-total-value-desc","method": "GET", "path": "/funds?sortField=TOTAL_VALUE&sortDirection=DESC" },
+  { "name": "funds-discovery-by-profit-desc",     "method": "GET", "path": "/funds?sortField=PROFIT&sortDirection=DESC" },
+  { "name": "funds-details",                      "method": "GET", "path": "/funds/1" },
+  { "name": "funds-analytics",                    "method": "GET", "path": "/funds/1/analytics" },
+  { "name": "funds-securities",                   "method": "GET", "path": "/funds/1/securities" },
+  { "name": "funds-performance",                  "method": "GET", "path": "/funds/1/performance" },
+  { "name": "funds-supervised",                   "method": "GET", "path": "/funds/supervised" },
+  { "name": "funds-bank-positions",               "method": "GET", "path": "/funds/bank-positions" },
+  { "name": "funds-positions",                    "method": "GET", "path": "/funds/1/positions" },
+  { "name": "funds-transactions",                 "method": "GET", "path": "/funds/1/transactions" },
+  { "name": "funds-my-positions",                 "method": "GET", "path": "/funds/my-positions" },
+  { "name": "funds-my-transactions",              "method": "GET", "path": "/funds/my-transactions" }
+]

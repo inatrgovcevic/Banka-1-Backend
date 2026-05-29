@@ -18,8 +18,10 @@ services:
   trading-service-go:
     profiles: ["go-trading"]
     build:
-      context: ../trading-service-go
-      dockerfile: Dockerfile
+      # Repo root context (matches market-service-go) so the sibling go-platform/
+      # module referenced by the replace directive is inside the build context.
+      context: ..
+      dockerfile: trading-service-go/Dockerfile
     container_name: banka_trading_service_go
     restart: unless-stopped
     env_file:
@@ -44,6 +46,51 @@ services:
       NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
       NOTIFICATION_ORDER_ROUTING_KEY: ${NOTIFICATION_ORDER_ROUTING_KEY:-order.#}
       NOTIFICATION_TAX_ROUTING_KEY: ${NOTIFICATION_TAX_ROUTING_KEY:-tax.#}
+      # P4 tax: capital-gains rate (banka.tax.capital-gains-rate, default 0.15) and
+      # the monthly-collection scheduler gate. Scheduler OFF during coexistence —
+      # Java still runs the same monthly job on the same rows; flip on at cut-over.
+      BANKA_TAX_CAPITAL_GAINS_RATE: ${BANKA_TAX_CAPITAL_GAINS_RATE:-0.15}
+      TAX_SCHEDULER_ENABLED: ${TAX_SCHEDULER_ENABLED:-false}
+      # P5 funds: saga delivery + consumer/scheduler gates.
+      #   SAGA_EVENTS_EXCHANGE  — publish: fund.subscribe.requested,
+      #                           fund.redeem.requested, fund.redeem.with-liquidation.requested
+      #   SAGA_RESULTS_EXCHANGE — consume: saga.FUND_SUBSCRIBE.STEP_1.fund.{success,failure},
+      #                           saga.FUND_REDEEM.STEP_1.fund.{success,failure},
+      #                           saga.FUND_LIQUIDATION_FOR_REDEMPTION.STEP_2.fund.success,
+      #                           saga.FUND_LIQUIDATION_FOR_REDEMPTION.STEP_X.fund.failure
+      # FUND_SAGA_CONSUMERS_ENABLED gates the Go saga consumers. OFF during
+      # coexistence: Java RabbitListeners own the trading.fund.* durable queues; if
+      # both Go and Java bind, the broker round-robins → half-processed sagas.
+      # Flip to true at cut-over.
+      # FUND_SNAPSHOT_SCHEDULER_ENABLED gates the daily fund-value snapshot cron
+      # (0 10 0 * * *). OFF during coexistence — Java runs the same daily job on the
+      # same rows. Flip to true at cut-over.
+      SAGA_EVENTS_EXCHANGE: ${SAGA_EVENTS_EXCHANGE:-saga.events}
+      SAGA_RESULTS_EXCHANGE: ${SAGA_RESULTS_EXCHANGE:-saga.exchange}
+      FUND_SAGA_CONSUMERS_ENABLED: ${FUND_SAGA_CONSUMERS_ENABLED:-false}
+      FUND_SNAPSHOT_SCHEDULER_ENABLED: ${FUND_SNAPSHOT_SCHEDULER_ENABLED:-false}
+      # P6 OTC: reuses SAGA_EVENTS_EXCHANGE (saga.events) for BOTH the premium/
+      # exercise saga publishes AND the result consumers (unlike funds, whose
+      # results land on saga.exchange), and NOTIFICATION_EXCHANGE for the
+      # otc.{countered,accepted,canceled,expiry_reminder} notifications.
+      #   OTC_SAGA_CONSUMERS_ENABLED gates the three Go consumers on the
+      #     trading.otc.{premium.completed,premium.failed,exercise.completed} durable
+      #     queues. OFF during coexistence — Java RabbitListeners own them; binding
+      #     from both sides would round-robin → half-processed contracts.
+      #   OTC_SCHEDULERS_ENABLED gates the expire-overdue (0 5 0) + expiry-reminder
+      #     (0 30 8) crons. OFF during coexistence — Java runs the same jobs.
+      #   OTC mutations themselves are NOT gated (matches the P3 order / P5 funds
+      #     precedent; the shared `portfolio` writes are correct under FOR UPDATE).
+      # Flip the gates to true at cut-over.
+      OTC_SAGA_CONSUMERS_ENABLED: ${OTC_SAGA_CONSUMERS_ENABLED:-false}
+      OTC_SCHEDULERS_ENABLED: ${OTC_SCHEDULERS_ENABLED:-false}
+      OTC_CONTRACT_EXPIRATION_NOTIFICATION_DAYS: ${OTC_CONTRACT_EXPIRATION_NOTIFICATION_DAYS:-3}
+      # P7 interbank: this bank's routing number (banka1 = 111), advertised in the
+      # /internal/interbank/public-stocks foreign-bank id (C-<userId>). Matches the
+      # interbank-service BANKA1_ROUTING_NUMBER. The /internal/interbank/* endpoints
+      # are SERVICE-gated and synchronous (no saga / scheduler / consumer) — no other
+      # new env for P7.
+      BANKA1_ROUTING_NUMBER: ${BANKA1_ROUTING_NUMBER:-111}
       SERVICES_USER_URL: http://user-service:${USER_SERVICE_PORT:-8081}
       SERVICES_BANKING_CORE_URL: http://banking-core-service:${BANKING_CORE_SERVICE_PORT:-8084}
       SERVICES_MARKET_URL: http://market-service:${MARKET_SERVICE_PORT:-8085}
@@ -56,9 +103,8 @@ services:
     networks:
       - banka-network
     healthcheck:
-      test:
-        - CMD-SHELL
-        - "curl -f http://localhost:${TRADING_SERVICE_GO_PORT:-18088}/actuator/health/liveness || exit 1"
+      # distroless runtime has no shell/curl: the binary self-probes liveness.
+      test: ["CMD", "/app/trading-service-go", "-healthcheck"]
       interval: 15s
       timeout: 5s
       retries: 10

@@ -1,0 +1,9 @@
+[
+  { "name": "tax-debts", "method": "GET", "path": "/tax/capital-gains/debts" },
+  { "name": "tax-debts-paged", "method": "GET", "path": "/tax/capital-gains/debts?page=0&size=5" },
+  { "name": "tax-user-debt", "method": "GET", "path": "/tax/capital-gains/1" },
+  { "name": "tax-tracking", "method": "GET", "path": "/tax/tracking" },
+  { "name": "tax-tracking-client", "method": "GET", "path": "/tax/tracking?userType=CLIENT" },
+  { "name": "tax-tracking-actuary", "method": "GET", "path": "/tax/tracking?userType=ACTUARY" },
+  { "name": "tax-tracking-paged", "method": "GET", "path": "/tax/tracking?page=0&size=5" }
+]

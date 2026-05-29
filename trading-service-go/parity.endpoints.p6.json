@@ -1,0 +1,8 @@
+[
+  { "name": "otc-offers-active",        "method": "GET", "path": "/otc/offers/active" },
+  { "name": "otc-offers-history",       "method": "GET", "path": "/otc/offers/history" },
+  { "name": "otc-public-stocks",        "method": "GET", "path": "/otc/public-stocks" },
+  { "name": "otc-contracts-my",         "method": "GET", "path": "/otc/contracts/my" },
+  { "name": "otc-contracts-my-active",  "method": "GET", "path": "/otc/contracts/my?status=ACTIVE" },
+  { "name": "otc-my-positions",         "method": "GET", "path": "/otc/my-positions" }
+]
