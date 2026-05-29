@@ -65,6 +65,11 @@ func seed(ctx context.Context, conn *sql.DB, cfg config.Config) error {
 			return fmt.Errorf("execute seed statement %q: %w", previewSQL(statement.sql), err)
 		}
 	}
+	if cfg.SeedDevData {
+		if err := execStatements(ctx, conn, devSeedClientAccountsSQL); err != nil {
+			return fmt.Errorf("execute dev seed: %w", err)
+		}
+	}
 	return nil
 }
 

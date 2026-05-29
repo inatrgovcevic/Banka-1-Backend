@@ -115,6 +115,23 @@ func TestEnforceAuthAllowsHierarchicalRole(t *testing.T) {
 	}
 }
 
+func TestEnforceAuthAllowsServiceTokenWithoutUserID(t *testing.T) {
+	// Servisni tokeni nemaju numericki id; SERVICE rola mora i dalje da prodje.
+	handler := &Handler{cfg: testAuthConfig()}
+	token := signedTestJWT(t, handler.cfg.JWTSecret, map[string]any{
+		"sub":   "banking-core-service",
+		"roles": "SERVICE",
+		"exp":   time.Now().Add(time.Hour).Unix(),
+	})
+	req := httptest.NewRequest("POST", "/internal/accounts/credit", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	if !handler.enforceAuth(rec, req) {
+		t.Fatalf("expected id-less SERVICE token to pass /internal/accounts, got status %d", rec.Code)
+	}
+}
+
 func TestEnforceAuthRequiresAuthForUnknownPath(t *testing.T) {
 	handler := &Handler{cfg: testAuthConfig()}
 	req := httptest.NewRequest("GET", "/some/unknown/path", nil)

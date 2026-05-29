@@ -60,18 +60,37 @@ func (h *Handler) enforceAuth(w http.ResponseWriter, r *http.Request) bool {
 	}
 }
 
-// requireAnyRole proverava da principal poseduje bar jednu od dozvoljenih rola
+// requireAnyRole proverava da pozivalac poseduje bar jednu od dozvoljenih rola
 // (uz role hijerarhiju). 401 ako nije autentifikovan, 403 ako rola ne odgovara.
 func (h *Handler) requireAnyRole(w http.ResponseWriter, r *http.Request, allowed ...string) bool {
-	principal, ok := h.principalFromRequest(w, r, true)
+	roles, ok := h.authenticatedRoles(w, r)
 	if !ok {
 		return false
 	}
-	if hasAnyRoleHierarchical(principal.Roles, allowed) {
+	if hasAnyRoleHierarchical(roles, allowed) {
 		return true
 	}
 	writeError(w, http.StatusForbidden, "ERR_FORBIDDEN", "Pristup odbijen", "Nedovoljna prava za pristup resursu")
 	return false
+}
+
+// authenticatedRoles validira identitet (JWT ili gateway header-i) i vraca role.
+// NE zahteva numericki subject id — servisni tokeni (sub="banking-core-service")
+// ga nemaju, a Java hasRole(...) proverava samo authority.
+func (h *Handler) authenticatedRoles(w http.ResponseWriter, r *http.Request) ([]string, bool) {
+	if token := bearerToken(r); token != "" {
+		claims, ok := h.verifiedJWTClaims(token)
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "ERR_UNAUTHORIZED", "Pristup odbijen", "Neispravan JWT token")
+			return nil, false
+		}
+		return h.rolesFromClaims(claims), true
+	}
+	if roles := rolesFromHeader(r); len(roles) > 0 {
+		return roles, true
+	}
+	writeError(w, http.StatusUnauthorized, "ERR_UNAUTHORIZED", "Pristup odbijen", "Potrebna je autentifikacija")
+	return nil, false
 }
 
 func hasAnyRoleHierarchical(held, allowed []string) bool {

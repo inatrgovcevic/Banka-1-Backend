@@ -29,6 +29,13 @@ type Config struct {
 	JWTPermissionsClaim string
 	JWTExpiration       time.Duration
 
+	CORSAllowedOrigins   []string
+	CORSAllowedMethods   []string
+	CORSAllowedHeaders   []string
+	CORSExposedHeaders   []string
+	CORSAllowCredentials bool
+	CORSMaxAgeSeconds    int64
+
 	NotificationExchange   string
 	NotificationRoutingKey string
 	VerificationRoutingKey string
@@ -59,6 +66,7 @@ type Config struct {
 
 	MigrationsEnabled bool
 	SkipVerification  bool
+	SeedDevData       bool
 }
 
 func Load() Config {
@@ -82,6 +90,14 @@ func Load() Config {
 		JWTRoleClaim:        env("BANKA_SECURITY_ROLES_CLAIM", "roles"),
 		JWTPermissionsClaim: env("BANKA_SECURITY_PERMISSIONS_CLAIM", "permissions"),
 		JWTExpiration:       time.Duration(envInt64("BANKA_SECURITY_EXPIRATION_TIME", 3600000)) * time.Millisecond,
+
+		// CORS — replicira security-lib SecurityProperties.Cors default-e.
+		CORSAllowedOrigins:   envListDefault("BANKA_SECURITY_CORS_ALLOWED_ORIGINS", []string{"http://localhost:4200"}),
+		CORSAllowedMethods:   envListDefault("BANKA_SECURITY_CORS_ALLOWED_METHODS", []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}),
+		CORSAllowedHeaders:   envListDefault("BANKA_SECURITY_CORS_ALLOWED_HEADERS", []string{"Authorization", "Content-Type", "Accept", "X-Requested-With", "X-Verification-Code", "X-Correlation-Id"}),
+		CORSExposedHeaders:   envListDefault("BANKA_SECURITY_CORS_EXPOSED_HEADERS", []string{"Location", "X-Correlation-Id"}),
+		CORSAllowCredentials: envBool("BANKA_SECURITY_CORS_ALLOW_CREDENTIALS", true),
+		CORSMaxAgeSeconds:    envInt64("BANKA_SECURITY_CORS_MAX_AGE_SECONDS", 3600),
 
 		NotificationExchange:   env("NOTIFICATION_EXCHANGE", "employee.events"),
 		NotificationRoutingKey: env("NOTIFICATION_ROUTING_KEY", "employee.#"),
@@ -113,7 +129,22 @@ func Load() Config {
 
 		MigrationsEnabled: envBool("BANKING_CORE_GO_MIGRATIONS_ENABLED", true),
 		SkipVerification:  envBool("SKIP_VERIFICATION", false),
+		SeedDevData:       seedDevData(),
 	}
+}
+
+// seedDevData replicira Liquibase context:dev gating za demo seed podatke.
+// Liquibase semantika: bez zadatog konteksta sve changeset-ove izvrsava;
+// sa "dev" izvrsava dev changeset-ove; sa "prod" ih preskace.
+func seedDevData() bool {
+	if value, ok := os.LookupEnv("BANKING_CORE_GO_SEED_DEV_DATA"); ok && strings.TrimSpace(value) != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err == nil {
+			return parsed
+		}
+	}
+	contexts := strings.ToLower(strings.TrimSpace(os.Getenv("LIQUIBASE_CONTEXTS")))
+	return contexts == "" || strings.Contains(contexts, "dev")
 }
 
 func (c Config) DatabaseURL() string {
@@ -190,6 +221,13 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func envListDefault(key string, fallback []string) []string {
+	if values := envList(key); len(values) > 0 {
+		return values
+	}
+	return fallback
 }
 
 func envList(key string) []string {
