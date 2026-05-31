@@ -583,46 +583,63 @@ services:
       retries: 10
       start_period: 20s
 
-  # 5/7. Trading Service (order + future margin/otc/funds; PR_02 C2.13)
+  # 5/7. Trading Service — Go (trading-service-go). P8 cut-over: promoted to the
+  # canonical trading-service on :8088, mirroring how market-service / user-service
+  # were cut over to Go. It owns the `trading` schema via its own migrations
+  # (baseline-skips the existing Java Liquibase schema; creates it on a fresh DB).
+  # The Java trading-service/ source stays in the repo but is no longer built here.
+  # api-gateway and interbank-service keep targeting trading-service:8088 — now Go —
+  # so neither needs changing. ROLLBACK = restore `dockerfile: trading-service/Dockerfile`
+  # + the curl healthcheck, drop GRPC_PORT, then rebuild this service.
   trading-service:
     build:
       context: ..
-      dockerfile: trading-service/Dockerfile
-      args:
-        SERVER_PORT: ${TRADING_SERVICE_PORT:-8088}
+      dockerfile: trading-service-go/Dockerfile
     container_name: banka_trading_service
     restart: unless-stopped
     env_file:
       - .env
     environment:
       SERVER_PORT: ${TRADING_SERVICE_PORT:-8088}
+      GRPC_PORT: ${TRADING_SERVICE_GRPC_PORT:-9088}
       TRADING_DB_HOST: postgres
       TRADING_DB_PORT: ${TRADING_DB_PORT:-5432}
       TRADING_DB_NAME: ${TRADING_DB_NAME:-trading}
       TRADING_DB_USER: ${TRADING_DB_USER:-postgres}
       TRADING_DB_PASSWORD: ${TRADING_DB_PASSWORD:-postgres}
       JWT_SECRET: ${JWT_SECRET}
-      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
+      BANKA_SECURITY_ISSUER: ${BANKA_SECURITY_ISSUER:-banka1}
+      BANKA_SECURITY_ID_CLAIM: ${BANKA_SECURITY_ID_CLAIM:-id}
+      BANKA_SECURITY_ROLES_CLAIM: ${BANKA_SECURITY_ROLES_CLAIM:-roles}
+      BANKA_SECURITY_PERMISSIONS_CLAIM: ${BANKA_SECURITY_PERMISSIONS_CLAIM:-permissions}
+      BANKA_SECURITY_CORS_ALLOWED_ORIGINS: ${BANKA_SECURITY_CORS_ALLOWED_ORIGINS:-http://localhost:4200,http://localhost:3000}
+      # Dev-seed gate for the Go migration runner (same signal Java used): a value
+      # containing "dev" applies 002_devseed_trading.sql on a fresh DB. Set a non-dev
+      # value (e.g. prod) to keep demo fixtures out of a production database.
       LIQUIBASE_CONTEXTS: ${LIQUIBASE_CONTEXTS:-dev}
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
       RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
-      NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification-service-queue}
       NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
-      NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY:-employee.#}
+      NOTIFICATION_ORDER_ROUTING_KEY: ${NOTIFICATION_ORDER_ROUTING_KEY:-order.#}
+      NOTIFICATION_TAX_ROUTING_KEY: ${NOTIFICATION_TAX_ROUTING_KEY:-tax.#}
+      BANKA_TAX_CAPITAL_GAINS_RATE: ${BANKA_TAX_CAPITAL_GAINS_RATE:-0.15}
+      SAGA_EVENTS_EXCHANGE: ${SAGA_EVENTS_EXCHANGE:-saga.events}
+      SAGA_RESULTS_EXCHANGE: ${SAGA_RESULTS_EXCHANGE:-saga.exchange}
+      OTC_CONTRACT_EXPIRATION_NOTIFICATION_DAYS: ${OTC_CONTRACT_EXPIRATION_NOTIFICATION_DAYS:-3}
+      BANKA1_ROUTING_NUMBER: ${BANKA1_ROUTING_NUMBER:-111}
+      # P8 cut-over: Go owns the scheduled + saga work now (Java trading retired), so
+      # the six coexistence gates are ON. Set any to false to hand that job back.
+      ORDER_SCHEDULERS_ENABLED: ${ORDER_SCHEDULERS_ENABLED:-true}
+      TAX_SCHEDULER_ENABLED: ${TAX_SCHEDULER_ENABLED:-true}
+      FUND_SAGA_CONSUMERS_ENABLED: ${FUND_SAGA_CONSUMERS_ENABLED:-true}
+      FUND_SNAPSHOT_SCHEDULER_ENABLED: ${FUND_SNAPSHOT_SCHEDULER_ENABLED:-true}
+      OTC_SAGA_CONSUMERS_ENABLED: ${OTC_SAGA_CONSUMERS_ENABLED:-true}
+      OTC_SCHEDULERS_ENABLED: ${OTC_SCHEDULERS_ENABLED:-true}
       SERVICES_USER_URL: http://user-service:${USER_SERVICE_PORT:-8081}
       SERVICES_BANKING_CORE_URL: http://banking-core-service:${BANKING_CORE_SERVICE_PORT:-8084}
       SERVICES_MARKET_URL: http://market-service:${MARKET_SERVICE_PORT:-8085}
-      MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
-      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: otlp
-      OTEL_LOGS_EXPORTER: none
-      OTEL_SERVICE_NAME: trading-service
-      LOGGING_FILE_PATH: /var/log/banka
-      <<: *jvm-tuning
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
@@ -631,12 +648,14 @@ services:
       otel-collector: { condition: service_started }
     expose:
       - "${TRADING_SERVICE_PORT:-8088}"
+      - "${TRADING_SERVICE_GRPC_PORT:-9088}"
     networks:
       - banka-network
     volumes:
       - trading-service-logs:/var/log/banka
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:${TRADING_SERVICE_PORT:-8088}/actuator/health/liveness || exit 1"]
+      # distroless runtime has no shell/curl: the binary self-probes liveness.
+      test: ["CMD", "/app/trading-service-go", "-healthcheck"]
       interval: 15s
       timeout: 5s
       retries: 10

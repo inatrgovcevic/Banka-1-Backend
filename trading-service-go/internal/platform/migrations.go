@@ -1,0 +1,157 @@
+package platform
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// RunMigrations applies the .sql files in dir in lexical order, tracking applied
+// files in go_schema_migrations. It mirrors market-service-go's runner with two
+// trading-specific behaviors:
+//
+//   - baselineExistingJavaSchema: on a database Java Liquibase already provisioned
+//     (the coexistence / cut-over case — Java owned the `trading` schema before
+//     trading-service-go took it over), every migration is recorded as applied
+//     WITHOUT running it, so the Go baseline never collides with the existing
+//     tables. On a fresh database the migrations run normally and create the schema.
+//   - dev-seed gating: files whose name contains "devseed" run only when
+//     LIQUIBASE_CONTEXTS contains "dev" (the same dev signal the rest of the stack
+//     uses; compose default is "dev"). Keeps demo fixtures out of a prod database.
+func RunMigrations(ctx context.Context, db *pgxpool.Pool, dir string) error {
+	if _, err := db.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS go_schema_migrations (
+			filename TEXT PRIMARY KEY,
+			applied_at TIMESTAMP NOT NULL DEFAULT now()
+		)`); err != nil {
+		return err
+	}
+
+	if err := baselineExistingJavaSchema(ctx, db, dir); err != nil {
+		return err
+	}
+
+	devSeed := devSeedEnabled()
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	var files []string
+	for _, entry := range entries {
+		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".sql" {
+			files = append(files, entry.Name())
+		}
+	}
+	sort.Strings(files)
+
+	for _, file := range files {
+		var applied bool
+		if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM go_schema_migrations WHERE filename = $1)`, file).Scan(&applied); err != nil {
+			return err
+		}
+		if applied {
+			continue
+		}
+		if isDevSeed(file) && !devSeed {
+			// Skip dev-only fixtures outside a dev context. Do NOT record them as
+			// applied, so flipping LIQUIBASE_CONTEXTS to dev later still applies them.
+			continue
+		}
+
+		sqlBytes, err := os.ReadFile(filepath.Join(dir, file))
+		if err != nil {
+			return err
+		}
+		tx, err := db.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, string(sqlBytes)); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO go_schema_migrations(filename) VALUES ($1)`, file); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// isDevSeed reports whether a migration file is a dev-only fixture (gated by
+// devSeedEnabled). The cut-over seed file is named *_devseed_*.sql.
+func isDevSeed(filename string) bool {
+	return strings.Contains(filename, "devseed")
+}
+
+// devSeedEnabled mirrors the Liquibase context:dev gate the Java services use:
+// dev fixtures apply when LIQUIBASE_CONTEXTS contains "dev". The compose default
+// is "dev", so fixtures apply locally unless an operator sets a non-dev context
+// (e.g. LIQUIBASE_CONTEXTS=prod) for a production database.
+func devSeedEnabled() bool {
+	ctxs := strings.ToLower(strings.TrimSpace(os.Getenv("LIQUIBASE_CONTEXTS")))
+	if ctxs == "" {
+		ctxs = "dev"
+	}
+	for _, c := range strings.Split(ctxs, ",") {
+		if strings.TrimSpace(c) == "dev" {
+			return true
+		}
+	}
+	return false
+}
+
+// baselineExistingJavaSchema records every migration as already-applied (without
+// executing it) when go_schema_migrations is empty AND the Java Liquibase schema
+// is already present (sentinel tables portfolio + orders). This is the
+// coexistence / cut-over path: the `trading` database was created and owned by
+// Java Liquibase, so the Go baseline must not try to recreate those tables. On a
+// fresh database (no sentinel tables) it is a no-op and the migrations run normally.
+func baselineExistingJavaSchema(ctx context.Context, db *pgxpool.Pool, dir string) error {
+	var tracked int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM go_schema_migrations`).Scan(&tracked); err != nil {
+		return err
+	}
+	if tracked > 0 {
+		return nil
+	}
+
+	var hasPortfolio, hasOrders bool
+	if err := db.QueryRow(ctx, `SELECT to_regclass('public.portfolio') IS NOT NULL`).Scan(&hasPortfolio); err != nil {
+		return err
+	}
+	if err := db.QueryRow(ctx, `SELECT to_regclass('public.orders') IS NOT NULL`).Scan(&hasOrders); err != nil {
+		return err
+	}
+	if !hasPortfolio || !hasOrders {
+		return nil
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO go_schema_migrations(filename) VALUES ($1) ON CONFLICT DO NOTHING`, entry.Name()); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}

@@ -47,7 +47,10 @@ server {
 
     # Frontend legacy auth refresh/logout endpoints.
     location /auth/ {
-        proxy_pass http://user_service;
+        # Use the resolver variable like every other block — a literal
+        # `http://user_service` is an undefined upstream and makes nginx fail at
+        # startup ("host not found in upstream user_service"). Pre-existing bug.
+        proxy_pass $user_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -159,7 +162,10 @@ server {
         return 301 /exchange/;
     }
     location /exchange/ {
-        proxy_pass $market_service/;
+        # Strip the /exchange prefix. nginx does NOT prefix-strip when proxy_pass uses
+        # a variable, so do it explicitly (otherwise the upstream receives only "/").
+        rewrite ^/exchange/(.*)$ /$1 break;
+        proxy_pass $market_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -171,7 +177,10 @@ server {
         return 301 /stock/;
     }
     location /stock/ {
-        proxy_pass $market_service/;
+        # Strip the /stock prefix (variable proxy_pass needs an explicit rewrite,
+        # else market-service receives only "/").
+        rewrite ^/stock/(.*)$ /$1 break;
+        proxy_pass $market_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -197,7 +206,10 @@ server {
         return 301 /order/;
     }
     location /order/ {
-        proxy_pass $trading_service/;
+        # Strip the /order frontend prefix (variable proxy_pass needs an explicit
+        # rewrite, else trading-service receives "/" instead of /portfolio, /orders…).
+        rewrite ^/order/(.*)$ /$1 break;
+        proxy_pass $trading_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -316,7 +328,9 @@ server {
         return 301 /credit/;
     }
     location /credit/ {
-        proxy_pass $credit_service/;
+        # Strip the /credit prefix (variable proxy_pass needs an explicit rewrite).
+        rewrite ^/credit/(.*)$ /$1 break;
+        proxy_pass $credit_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

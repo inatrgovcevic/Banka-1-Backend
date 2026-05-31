@@ -1,0 +1,7 @@
+[
+  { "name": "actuator-info", "method": "GET", "path": "/actuator/info" },
+  { "name": "actuator-liveness", "method": "GET", "path": "/actuator/health/liveness" },
+  { "name": "analytics-runs-latest", "method": "GET", "path": "/analytics/runs/latest" },
+  { "name": "analytics-clients-segments", "method": "GET", "path": "/analytics/clients/segments" },
+  { "name": "analytics-tickers-top", "method": "GET", "path": "/analytics/tickers/top" }
+]

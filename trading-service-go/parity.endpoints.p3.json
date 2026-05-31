@@ -1,0 +1,9 @@
+[
+  { "name": "orders-all", "method": "GET", "path": "/orders" },
+  { "name": "orders-pending", "method": "GET", "path": "/orders?status=PENDING" },
+  { "name": "orders-approved", "method": "GET", "path": "/orders?status=APPROVED" },
+  { "name": "orders-declined", "method": "GET", "path": "/orders?status=DECLINED" },
+  { "name": "orders-done", "method": "GET", "path": "/orders?status=DONE" },
+  { "name": "orders-cancelled", "method": "GET", "path": "/orders?status=CANCELLED" },
+  { "name": "orders-paged", "method": "GET", "path": "/orders?status=ALL&page=0&size=5" }
+]
