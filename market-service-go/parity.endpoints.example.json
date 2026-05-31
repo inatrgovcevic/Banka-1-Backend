@@ -1,0 +1,122 @@
+[
+  {
+    "name": "actuator-health-liveness",
+    "method": "GET",
+    "path": "/actuator/health/liveness"
+  },
+  {
+    "name": "actuator-info",
+    "method": "GET",
+    "path": "/actuator/info"
+  },
+  {
+    "name": "stocks-info",
+    "method": "GET",
+    "path": "/stocks/info"
+  },
+  {
+    "name": "exchange-info",
+    "method": "GET",
+    "path": "/exchange/info"
+  },
+  {
+    "name": "price-feed-current-aapl-msft",
+    "method": "GET",
+    "path": "/stocks/price-feed/current?tickers=AAPL,MSFT"
+  },
+  {
+    "name": "price-feed-single-aapl",
+    "method": "GET",
+    "path": "/stocks/price-feed/single/AAPL"
+  },
+  {
+    "name": "listing-details-period-week",
+    "method": "GET",
+    "path": "/api/listings/15?period=WEEK"
+  },
+  {
+    "name": "listing-catalog-stocks-default",
+    "method": "GET",
+    "path": "/api/listings/stocks?page=0&size=20&sortBy=ticker&sortDirection=asc"
+  },
+  {
+    "name": "listing-catalog-stocks-page-1",
+    "method": "GET",
+    "path": "/api/listings/stocks?page=1&size=10&sortBy=ticker&sortDirection=asc"
+  },
+  {
+    "name": "listing-catalog-stocks-by-price",
+    "method": "GET",
+    "path": "/api/listings/stocks?page=0&size=20&sortBy=price&sortDirection=desc"
+  },
+  {
+    "name": "listing-catalog-stocks-empty",
+    "method": "GET",
+    "path": "/api/listings/stocks?page=0&size=20&search=__no_match__"
+  },
+  {
+    "name": "listing-catalog-futures-default",
+    "method": "GET",
+    "path": "/api/listings/futures?page=0&size=20&sortBy=ticker&sortDirection=asc"
+  },
+  {
+    "name": "listing-catalog-forex-default",
+    "method": "GET",
+    "path": "/api/listings/forex?page=0&size=20&sortBy=ticker&sortDirection=asc"
+  },
+  {
+    "name": "stock-exchanges-list",
+    "method": "GET",
+    "path": "/api/stock-exchanges"
+  },
+  {
+    "name": "stock-exchange-is-open",
+    "method": "GET",
+    "path": "/api/stock-exchanges/1/is-open"
+  },
+  {
+    "name": "stock-exchange-status",
+    "method": "GET",
+    "path": "/api/stock-exchanges/1/status"
+  },
+  {
+    "name": "rates-default",
+    "method": "GET",
+    "path": "/rates"
+  },
+  {
+    "name": "rate-eur",
+    "method": "GET",
+    "path": "/rates/EUR"
+  },
+  {
+    "name": "rate-rsd-synthetic",
+    "method": "GET",
+    "path": "/rates/RSD"
+  },
+  {
+    "name": "calculate-eur-usd-100",
+    "method": "GET",
+    "path": "/calculate?fromCurrency=EUR&toCurrency=USD&amount=100.00"
+  },
+  {
+    "name": "calculate-same-currency",
+    "method": "GET",
+    "path": "/calculate?fromCurrency=USD&toCurrency=USD&amount=100.00"
+  },
+  {
+    "name": "calculate-invalid-amount",
+    "method": "GET",
+    "path": "/calculate?fromCurrency=EUR&toCurrency=USD&amount=0"
+  },
+  {
+    "name": "internal-calculate-no-commission",
+    "method": "GET",
+    "path": "/internal/calculate/no-commission?fromCurrency=USD&toCurrency=USD&amount=100.00"
+  },
+  {
+    "name": "internal-calculate-no-commission-rsd",
+    "method": "GET",
+    "path": "/internal/calculate/no-commission?fromCurrency=RSD&toCurrency=EUR&amount=500.00"
+  }
+]

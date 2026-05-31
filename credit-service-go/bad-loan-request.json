@@ -1,0 +1,13 @@
+{
+  "loanType": "",
+  "interestType": "",
+  "amount": "0",
+  "currency": "",
+  "purpose": "",
+  "monthlySalary": "0",
+  "employmentStatus": "",
+  "currentEmploymentPeriod": 0,
+  "repaymentPeriod": 0,
+  "contactPhone": "",
+  "accountNumber": "123"
+}

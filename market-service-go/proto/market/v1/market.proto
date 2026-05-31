@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package market.v1;
+
+option go_package = "banka1/market-service-go/proto/market/v1;marketv1";
+
+service MarketService {
+  rpc GetListing (GetListingRequest) returns (GetListingResponse);
+  rpc GetQuote (GetQuoteRequest) returns (GetQuoteResponse);
+  rpc Convert (ConvertRequest) returns (ConvertResponse);
+}
+
+message GetListingRequest {
+  int64 listing_id = 1;
+}
+
+message GetListingResponse {
+  string json_payload = 1;
+}
+
+message GetQuoteRequest {
+  string ticker = 1;
+}
+
+message GetQuoteResponse {
+  string json_payload = 1;
+}
+
+message ConvertRequest {
+  string from_currency = 1;
+  string to_currency = 2;
+  string amount = 3;
+  string date = 4;
+  bool include_commission = 5;
+}
+
+message ConvertResponse {
+  string json_payload = 1;
+}

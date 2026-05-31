@@ -1,0 +1,65 @@
+# Overlay for the future trading-service-go service.
+#
+# NOT loaded by default. When trading-service-go is ready, opt in with:
+#
+#   docker compose --env-file .\setup\.env `
+#     -f .\setup\docker-compose.yml `
+#     -f .\setup\docker-compose.go-trading.yml `
+#     --profile go-trading `
+#     up -d trading-service-go
+#
+# Java trading-service remains the default upstream until trading-service-go is
+# implemented and intentionally switched in the api-gateway.
+#
+# This file is NOT linted by docker compose config unless explicitly passed via -f,
+# so it is safe to keep here even before trading-service-go/Dockerfile exists.
+
+services:
+  trading-service-go:
+    profiles: ["go-trading"]
+    build:
+      context: ../trading-service-go
+      dockerfile: Dockerfile
+    container_name: banka_trading_service_go
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SERVER_PORT: ${TRADING_SERVICE_GO_PORT:-18088}
+      GRPC_PORT: ${TRADING_SERVICE_GO_GRPC_PORT:-19088}
+      TRADING_DB_HOST: postgres
+      TRADING_DB_PORT: ${TRADING_DB_PORT:-5432}
+      TRADING_DB_NAME: ${TRADING_DB_NAME:-trading}
+      TRADING_DB_USER: ${TRADING_DB_USER:-postgres}
+      TRADING_DB_PASSWORD: ${TRADING_DB_PASSWORD:-postgres}
+      JWT_SECRET: ${JWT_SECRET}
+      BANKA_SECURITY_ISSUER: ${BANKA_SECURITY_ISSUER:-banka1}
+      BANKA_SECURITY_ID_CLAIM: ${BANKA_SECURITY_ID_CLAIM:-id}
+      BANKA_SECURITY_ROLES_CLAIM: ${BANKA_SECURITY_ROLES_CLAIM:-roles}
+      BANKA_SECURITY_PERMISSIONS_CLAIM: ${BANKA_SECURITY_PERMISSIONS_CLAIM:-permissions}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
+      NOTIFICATION_ORDER_ROUTING_KEY: ${NOTIFICATION_ORDER_ROUTING_KEY:-order.#}
+      NOTIFICATION_TAX_ROUTING_KEY: ${NOTIFICATION_TAX_ROUTING_KEY:-tax.#}
+      SERVICES_USER_URL: http://user-service:${USER_SERVICE_PORT:-8081}
+      SERVICES_BANKING_CORE_URL: http://banking-core-service:${BANKING_CORE_SERVICE_PORT:-8084}
+      SERVICES_MARKET_URL: http://market-service:${MARKET_SERVICE_PORT:-8085}
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    ports:
+      - "${TRADING_SERVICE_GO_PORT:-18088}:${TRADING_SERVICE_GO_PORT:-18088}"
+      - "${TRADING_SERVICE_GO_GRPC_PORT:-19088}:${TRADING_SERVICE_GO_GRPC_PORT:-19088}"
+    networks:
+      - banka-network
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -f http://localhost:${TRADING_SERVICE_GO_PORT:-18088}/actuator/health/liveness || exit 1"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s

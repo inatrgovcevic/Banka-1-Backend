@@ -1,0 +1,31 @@
+services:
+  credit-service-go:
+    image: credit-service-go
+    container_name: credit-service-go
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8085:8085"
+    environment:
+      CREDIT_DB_HOST: host.docker.internal
+      CREDIT_DB_PORT: 5432
+      CREDIT_DB_NAME: creditdb
+      CREDIT_DB_USER: postgres
+      CREDIT_DB_PASSWORD: postgres
+
+      JWT_SECRET: ci-test-secret-that-is-long-enough-for-hmac
+      INTERNAL_AUTH_TOKEN: ""
+
+      SERVICES_ACCOUNT_URL: http://host.docker.internal:8084
+      SERVICES_EXCHANGE_URL: http://host.docker.internal:8085
+      SERVICES_USER_URL: http://host.docker.internal:8083
+
+      RABBITMQ_HOST: host.docker.internal
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_EXCHANGE: notification_exchange
+      RABBITMQ_ROUTING_KEY: notification_routing_key
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

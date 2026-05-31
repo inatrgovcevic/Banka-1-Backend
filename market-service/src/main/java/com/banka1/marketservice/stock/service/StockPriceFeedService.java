@@ -7,7 +7,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
-import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -84,7 +83,7 @@ public class StockPriceFeedService {
                 if (redisHit != null) {
                     return redisHit;
                 }
-            } catch (RedisConnectionFailureException | DataAccessException ex) {
+            } catch (DataAccessException ex) {
                 log.warn("Redis unavailable za {} cache read — fallback na in-process: {}", ticker, ex.getMessage());
             }
         }
@@ -101,7 +100,7 @@ public class StockPriceFeedService {
             try {
                 stockPriceRedisTemplate.opsForValue().set(REDIS_KEY_PREFIX + ticker, snapshot, ttl);
                 return;
-            } catch (RedisConnectionFailureException | DataAccessException ex) {
+            } catch (DataAccessException ex) {
                 log.warn("Redis unavailable za {} cache write — fallback na in-process: {}", ticker, ex.getMessage());
             }
         }

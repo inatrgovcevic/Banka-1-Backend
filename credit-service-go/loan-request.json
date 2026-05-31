@@ -1,0 +1,13 @@
+{
+  "loanType": "GOTOVINSKI",
+  "interestType": "FIXED",
+  "amount": "10000",
+  "currency": "RSD",
+  "purpose": "test",
+  "monthlySalary": "100000",
+  "employmentStatus": "PERMANENT",
+  "currentEmploymentPeriod": 12,
+  "repaymentPeriod": 24,
+  "contactPhone": "0601234567",
+  "accountNumber": "1234567890123456789"
+}
