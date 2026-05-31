@@ -1,0 +1,8 @@
+[
+  { "name": "actuaries-agents", "method": "GET", "path": "/actuaries/agents" },
+  { "name": "actuaries-agents-paged", "method": "GET", "path": "/actuaries/agents?page=0&size=5" },
+  { "name": "actuaries-agents-filtered", "method": "GET", "path": "/actuaries/agents?ime=&page=0&size=10" },
+  { "name": "actuaries-profit", "method": "GET", "path": "/actuaries/profit" },
+  { "name": "actuaries-bank-summary", "method": "GET", "path": "/actuaries/profit/bank-summary" },
+  { "name": "portfolio-summary", "method": "GET", "path": "/portfolio" }
+]

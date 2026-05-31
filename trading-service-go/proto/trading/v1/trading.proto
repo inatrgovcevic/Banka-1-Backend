@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package trading.v1;
+
+option go_package = "banka1/trading-service-go/proto/trading/v1;tradingv1";
+
+// TradingService mirrors selected REST reads over gRPC using the same thin
+// JSON-payload façade as market-service-go (each RPC returns the JSON string the
+// HTTP handler would have produced). gRPC is additive and internal-only; public
+// traffic stays HTTP/JSON through the gateway. RPCs are added per phase.
+service TradingService {
+  // Ping exercises the channel before any domain RPC (returns {"status":"UP"}).
+  rpc Ping (PingRequest) returns (PingResponse);
+
+  // GetLatestAnalyticsRun returns the latest COMPLETED analytics run as JSON
+  // (same payload as GET /analytics/runs/latest). NOT_FOUND if none exists.
+  rpc GetLatestAnalyticsRun (GetLatestAnalyticsRunRequest) returns (GetLatestAnalyticsRunResponse);
+}
+
+message PingRequest {}
+
+message PingResponse {
+  string json_payload = 1;
+}
+
+message GetLatestAnalyticsRunRequest {}
+
+message GetLatestAnalyticsRunResponse {
+  string json_payload = 1;
+}

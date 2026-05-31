@@ -1,0 +1,3 @@
+[
+  { "name": "interbank-public-stocks", "method": "GET", "path": "/internal/interbank/public-stocks" }
+]
