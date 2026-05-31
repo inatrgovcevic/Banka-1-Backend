@@ -31,7 +31,6 @@ include 'order-service'
 // preneti stari kod. Auto-config kroz security-lib auto-loaduje JmbgEncryptor,
 // Resilience4j, ShedLock, koje stari moduli takodje koriste.
 include 'user-service'
-include 'market-service'
 include 'banking-core-service'
 include 'trading-service'
 

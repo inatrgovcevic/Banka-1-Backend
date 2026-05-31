@@ -94,3 +94,5 @@ reports/
 
 # Misc
 *.pdf
+.gocache/
+.gomodcache/

@@ -1,0 +1,37 @@
+[
+  {
+    "name": "listing-refresh-1",
+    "method": "POST",
+    "path": "/api/listings/1/refresh"
+  },
+  {
+    "name": "internal-listing-refresh-1",
+    "method": "POST",
+    "path": "/api/internal/listings/1/refresh"
+  },
+  {
+    "name": "stock-exchange-toggle-active-1",
+    "method": "PUT",
+    "path": "/api/stock-exchanges/1/toggle-active"
+  },
+  {
+    "name": "admin-stock-exchanges-import",
+    "method": "POST",
+    "path": "/admin/stock-exchanges/import"
+  },
+  {
+    "name": "admin-stocks-refresh-all",
+    "method": "POST",
+    "path": "/admin/stocks/refresh-all"
+  },
+  {
+    "name": "admin-stocks-refresh-aapl",
+    "method": "POST",
+    "path": "/admin/stocks/AAPL/refresh-market-data"
+  },
+  {
+    "name": "rates-fetch",
+    "method": "POST",
+    "path": "/rates/fetch"
+  }
+]

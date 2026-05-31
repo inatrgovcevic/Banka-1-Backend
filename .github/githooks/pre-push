@@ -13,6 +13,7 @@ echo "========================================="
 # Returns 0 if the directory contains a recognizable service build system
 is_service_dir() {
   SERVICE_DIR="$1"
+  [ "$(basename "$SERVICE_DIR")" = "market-service" ] && return 1
   HAS_DOTNET=0
   { ls "$SERVICE_DIR"/*.sln >/dev/null 2>&1 || ls "$SERVICE_DIR"/*.csproj >/dev/null 2>&1; } && HAS_DOTNET=1
 

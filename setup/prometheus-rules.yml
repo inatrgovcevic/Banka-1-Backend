@@ -65,16 +65,6 @@ groups:
           summary: "banking-core-service is not reporting metrics"
           description: "banking-core-service has not exported any JVM metrics for 2+ minutes."
 
-      - alert: MarketServiceDown
-        expr: absent(jvm_memory_used_bytes{service_name="market-service"})
-        for: 2m
-        labels:
-          severity: critical
-          service: market-service
-        annotations:
-          summary: "market-service is not reporting metrics"
-          description: "market-service has not exported any JVM metrics for 2+ minutes."
-
       - alert: TradingServiceDown
         expr: absent(jvm_memory_used_bytes{service_name="trading-service"})
         for: 2m

@@ -8,57 +8,62 @@
 # X-Forwarded-Prefix sa SB 4.0.3 FRAMEWORK strategy-jem dupli prefiks na
 # servletPath i kvari routing.
 
-upstream user_service {
-    server user-service:${USER_SERVICE_PORT};
-}
-
-upstream market_service {
-    server market-service:${MARKET_SERVICE_PORT};
-}
-
-upstream banking_core_service {
-    server banking-core-service:${BANKING_CORE_SERVICE_PORT};
-}
-
-upstream trading_service {
-    server trading-service:${TRADING_SERVICE_PORT};
-}
-
-upstream credit_service {
-    server credit-service:${CREDIT_SERVER_PORT};
-}
-
-upstream notification_service {
-    server notification-service:${NOTIFICATION_SERVICE_PORT};
-}
-
-upstream saga_orchestrator_service {
-    server saga-orchestrator-service:${SAGA_SERVICE_PORT};
-}
-
-upstream interbank_service {
-    server interbank-service:${INTERBANK_SERVICE_PORT};
-}
-
-
 server {
     listen 80;
     server_name localhost;
 
     client_max_body_size 25m;
 
+    # Resolve service names at request time so the gateway can start for a
+    # partial Go-only stack; unused Java upstreams do not need to exist.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $user_service http://user-service:${USER_SERVICE_PORT};
+    set $market_service http://market-service:${MARKET_SERVICE_PORT};
+    set $banking_core_service http://banking-core-service:${BANKING_CORE_SERVICE_PORT};
+    set $trading_service http://trading-service:${TRADING_SERVICE_PORT};
+    set $credit_service http://credit-service:${CREDIT_SERVER_PORT};
+    set $notification_service http://notification-service:${NOTIFICATION_SERVICE_PORT};
+    set $saga_orchestrator_service http://saga-orchestrator-service:${SAGA_SERVICE_PORT};
+    set $interbank_service http://interbank-service:${INTERBANK_SERVICE_PORT};
+
+    # === Go service health checks through gateway ===
+    location = /health/user {
+        proxy_pass $user_service/actuator/health/readiness;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /health/market {
+        proxy_pass $market_service/actuator/health/readiness;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # === User domain (employee + client; konsolidovano u user-service) ===
+
+    # Frontend legacy auth refresh/logout endpoints.
+    location /auth/ {
+        proxy_pass http://user_service;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
     # Exact /employees (Spring CrudController @GetMapping at /employees, no trailing slash)
     location = /employees {
-        proxy_pass http://user_service/employees$is_args$args;
+        proxy_pass $user_service/employees$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /employees/ {
-        proxy_pass http://user_service;
+        proxy_pass $user_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -66,14 +71,14 @@ server {
     }
 
     location = /clients {
-        proxy_pass http://user_service/clients$is_args$args;
+        proxy_pass $user_service/clients$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /clients/ {
-        proxy_pass http://user_service;
+        proxy_pass $user_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -83,7 +88,7 @@ server {
     # === Banking core domain (account/card/transaction/transfer/verification) ===
 
     location /accounts/ {
-        proxy_pass http://banking_core_service;
+        proxy_pass $banking_core_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -91,7 +96,7 @@ server {
     }
 
     location /api/cards/ {
-        proxy_pass http://banking_core_service;
+        proxy_pass $banking_core_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -102,7 +107,7 @@ server {
         return 301 /transactions/;
     }
     location /transactions/ {
-        proxy_pass http://banking_core_service;
+        proxy_pass $banking_core_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -113,7 +118,7 @@ server {
         return 301 /transfers/;
     }
     location /transfers/ {
-        proxy_pass http://banking_core_service;
+        proxy_pass $banking_core_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -124,7 +129,7 @@ server {
         return 301 /verification/;
     }
     location /verification/ {
-        proxy_pass http://banking_core_service;
+        proxy_pass $banking_core_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -133,14 +138,14 @@ server {
 
     # PaymentRecipient kontroler (transaction-service) je na /payment-recipients
     location = /payment-recipients {
-        proxy_pass http://banking_core_service/payment-recipients$is_args$args;
+        proxy_pass $banking_core_service/payment-recipients$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /payment-recipients/ {
-        proxy_pass http://banking_core_service;
+        proxy_pass $banking_core_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -154,7 +159,7 @@ server {
         return 301 /exchange/;
     }
     location /exchange/ {
-        proxy_pass http://market_service/;
+        proxy_pass $market_service/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -166,7 +171,7 @@ server {
         return 301 /stock/;
     }
     location /stock/ {
-        proxy_pass http://market_service/;
+        proxy_pass $market_service/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -178,7 +183,7 @@ server {
         return 301 /stocks/;
     }
     location /stocks/ {
-        proxy_pass http://market_service;
+        proxy_pass $market_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -192,7 +197,7 @@ server {
         return 301 /order/;
     }
     location /order/ {
-        proxy_pass http://trading_service/;
+        proxy_pass $trading_service/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -200,14 +205,14 @@ server {
     }
 
     location = /orders {
-        proxy_pass http://trading_service/orders$is_args$args;
+        proxy_pass $trading_service/orders$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /orders/ {
-        proxy_pass http://trading_service;
+        proxy_pass $trading_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -215,14 +220,14 @@ server {
     }
 
     location = /portfolio {
-        proxy_pass http://trading_service/portfolio$is_args$args;
+        proxy_pass $trading_service/portfolio$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /portfolio/ {
-        proxy_pass http://trading_service;
+        proxy_pass $trading_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -230,14 +235,14 @@ server {
     }
 
     location = /actuaries {
-        proxy_pass http://trading_service/actuaries$is_args$args;
+        proxy_pass $trading_service/actuaries$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /actuaries/ {
-        proxy_pass http://trading_service;
+        proxy_pass $trading_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -245,14 +250,14 @@ server {
     }
 
     location = /tax {
-        proxy_pass http://trading_service/tax$is_args$args;
+        proxy_pass $trading_service/tax$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /tax/ {
-        proxy_pass http://trading_service;
+        proxy_pass $trading_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -260,7 +265,7 @@ server {
     }
 
     location /otc/ {
-        proxy_pass http://trading_service;
+        proxy_pass $trading_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -268,14 +273,14 @@ server {
     }
 
     location = /funds {
-        proxy_pass http://trading_service/funds$is_args$args;
+        proxy_pass $trading_service/funds$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /funds/ {
-        proxy_pass http://trading_service;
+        proxy_pass $trading_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -283,7 +288,7 @@ server {
     }
 
     location /margin/ {
-        proxy_pass http://trading_service;
+        proxy_pass $trading_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -291,14 +296,14 @@ server {
     }
 
     location = /analytics {
-        proxy_pass http://trading_service/analytics$is_args$args;
+        proxy_pass $trading_service/analytics$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /analytics/ {
-        proxy_pass http://trading_service;
+        proxy_pass $trading_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -311,7 +316,7 @@ server {
         return 301 /credit/;
     }
     location /credit/ {
-        proxy_pass http://credit_service/;
+        proxy_pass $credit_service/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -320,7 +325,7 @@ server {
 
     # /api/loans → credit-service (LoanController @RequestMapping("/api/loans"))
     location /api/loans/ {
-        proxy_pass http://credit_service;
+        proxy_pass $credit_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -328,14 +333,14 @@ server {
     }
 
     location = /notifications {
-        proxy_pass http://notification_service/notifications$is_args$args;
+        proxy_pass $notification_service/notifications$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /notifications/ {
-        proxy_pass http://notification_service;
+        proxy_pass $notification_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -346,7 +351,7 @@ server {
         return 301 /saga/;
     }
     location /saga/ {
-        proxy_pass http://saga_orchestrator_service;
+        proxy_pass $saga_orchestrator_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -358,7 +363,7 @@ server {
     # NIJE X-Api-Key. Naš InterbankOtcOutboundController dela kao klijent ka
     # partner Banka 2 BE-u kroz InterbankClient outbound metode.
     location /api/interbank/ {
-        proxy_pass http://interbank_service;
+        proxy_pass $interbank_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -375,14 +380,14 @@ server {
     # `/public-stock/`. Koristimo exact match + prefix match (za sub-paths kao
     # `/interbank/user/{rn}/{id}`).
     location = /interbank {
-        proxy_pass http://interbank_service;
+        proxy_pass $interbank_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /interbank/ {
-        proxy_pass http://interbank_service;
+        proxy_pass $interbank_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -390,7 +395,7 @@ server {
     }
 
     location = /public-stock {
-        proxy_pass http://interbank_service;
+        proxy_pass $interbank_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -398,14 +403,14 @@ server {
     }
 
     location = /negotiations {
-        proxy_pass http://interbank_service;
+        proxy_pass $interbank_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
     location /negotiations/ {
-        proxy_pass http://interbank_service;
+        proxy_pass $interbank_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -417,7 +422,7 @@ server {
     # drugim. /interbank/user/{rn}/{id} ostaje kao backward-compatible alias
     # pokriven /interbank/ prefiks blokom iznad.
     location ~ ^/user/[0-9]+/[A-Za-z0-9_.-]+$ {
-        proxy_pass http://interbank_service;
+        proxy_pass $interbank_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
