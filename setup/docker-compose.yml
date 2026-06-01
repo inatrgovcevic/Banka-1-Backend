@@ -321,13 +321,11 @@ services:
   # Application services (7 servisa, posle PR_02 konsolidacije 15→7)
   # =========================================================================
 
-  # 1/7. Notification Service (samostalan, nepromenjen)
+  # 1/7. Notification Service (Go rewrite)
   notification-service:
     build:
       context: ..
-      dockerfile: notification-service/Dockerfile
-      args:
-        SERVER_PORT: ${NOTIFICATION_SERVER_PORT:-8006}
+      dockerfile: notification-service-go/Dockerfile
     container_name: notification-service
     restart: unless-stopped
     env_file:
@@ -337,11 +335,24 @@ services:
       NOTIFICATION_SERVICE_PORT: ${NOTIFICATION_SERVER_PORT:-8006}
       SERVER_PORT: ${NOTIFICATION_SERVER_PORT:-8006}
       POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-notification_db}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
       RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification-service-queue}
+      NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
+      NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY:-employee.#}
+      NOTIFICATION_CLIENT_ROUTING_KEY: ${NOTIFICATION_CLIENT_ROUTING_KEY:-client.#}
+      NOTIFICATION_CARD_ROUTING_KEY: ${NOTIFICATION_CARD_ROUTING_KEY:-card.#}
+      NOTIFICATION_CREDIT_ROUTING_KEY: ${NOTIFICATION_CREDIT_ROUTING_KEY:-credit.#}
+      NOTIFICATION_ORDER_ROUTING_KEY: ${NOTIFICATION_ORDER_ROUTING_KEY:-order.#}
+      NOTIFICATION_TAX_ROUTING_KEY: ${NOTIFICATION_TAX_ROUTING_KEY:-tax.#}
+      NOTIFICATION_OTC_ROUTING_KEY: ${NOTIFICATION_OTC_ROUTING_KEY:-otc.#}
+      NOTIFICATION_VERIFICATION_ROUTING_KEY: ${NOTIFICATION_VERIFICATION_ROUTING_KEY:-verification.#}
       MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
@@ -350,8 +361,12 @@ services:
       OTEL_LOGS_EXPORTER: none
       OTEL_SERVICE_NAME: notification-service
       LOGGING_FILE_PATH: /var/log/banka
-      FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-/app/firebase-credentials.json}
-      <<: *jvm-tuning
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-true}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-true}
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
@@ -362,9 +377,8 @@ services:
       - banka-network
     volumes:
       - notification-service-logs:/var/log/banka
-      - ${FIREBASE_CREDENTIALS_HOST_PATH:-/dev/null}:/app/firebase-credentials.json:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:${NOTIFICATION_SERVER_PORT:-8006}/actuator/health/liveness || exit 1"]
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --timeout=3 -O- http://localhost:${NOTIFICATION_SERVER_PORT:-8006}/health > /dev/null || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -680,13 +694,11 @@ services:
       start_period: 30s
     deploy: *app-resource-limits
 
-  # 6/7. Credit Service (samostalan, nepromenjen)
+  # 6/7. Credit Service (Go rewrite)
   credit-service:
     build:
-      context: ..
-      dockerfile: credit-service/Dockerfile
-      args:
-        SERVER_PORT: ${CREDIT_SERVER_PORT:-8089}
+      context: ../credit-service-go
+      dockerfile: Dockerfile
     container_name: banka_credit_service
     restart: unless-stopped
     env_file:
@@ -719,6 +731,8 @@ services:
       NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification-service-queue}
       NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
       NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY:-employee.#}
+      RABBITMQ_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
+      RABBITMQ_ROUTING_KEY: ${NOTIFICATION_CREDIT_ROUTING_KEY:-credit.#}
       MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
@@ -727,7 +741,6 @@ services:
       OTEL_LOGS_EXPORTER: none
       OTEL_SERVICE_NAME: credit-service
       LOGGING_FILE_PATH: /var/log/banka
-      <<: *jvm-tuning
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
@@ -740,7 +753,7 @@ services:
     volumes:
       - credit-service-logs:/var/log/banka
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:${CREDIT_SERVER_PORT:-8089}/actuator/health/liveness || exit 1"]
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --timeout=3 -O- http://localhost:${CREDIT_SERVER_PORT:-8089}/health > /dev/null || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"Banka1Back/credit-service-go/internal/api"
 	"Banka1Back/credit-service-go/internal/client"
@@ -89,11 +90,19 @@ func main() {
 
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
-	port := "8085"
+	port := getenv("SERVER_PORT", getenv("CREDIT_SERVER_PORT", "8089"))
 	fmt.Println("credit-service started on port " + port)
 
 	err = http.ListenAndServe(":"+port, mux)
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func getenv(key string, fallback string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value
 }

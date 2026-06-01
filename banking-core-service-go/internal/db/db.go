@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS account_table (
 ALTER TABLE account_table ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE account_table ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE account_table ADD COLUMN IF NOT EXISTS deleted_due_to_client_id BIGINT;
+ALTER TABLE account_table ALTER COLUMN datum_i_vreme_kreiranja SET DEFAULT CURRENT_TIMESTAMP;
 
 CREATE INDEX IF NOT EXISTS idx_account_vlasnik ON account_table(vlasnik);
 CREATE INDEX IF NOT EXISTS idx_account_broj ON account_table(broj_racuna);
@@ -536,7 +537,7 @@ INSERT INTO account_table (
 SELECT '1110001' || (100000000 + c.id)::text || '12',
        'Banka', 'Banka', 'Banka ' || c.oznaka,
        -1, -1, 1000000000, 1000000000, c.id,
-       'ACTIVE', 0, 0, 'CHECKING', 'BUSINESS'
+       'ACTIVE', 0, 0, CASE WHEN c.oznaka = 'RSD' THEN 'CHECKING' ELSE 'FX' END, 'BUSINESS'
   FROM currency_table c
  WHERE NOT EXISTS (
        SELECT 1 FROM account_table a WHERE a.vlasnik = -1 AND a.currency_id = c.id
@@ -553,7 +554,7 @@ INSERT INTO account_table (
 SELECT '1110001' || (200000000 + c.id)::text || '12',
        'Republika', 'Srbija', 'Drzavni racun ' || c.oznaka,
        -2, -1, 1000000000, 1000000000, c.id,
-       'ACTIVE', 0, 0, 'CHECKING', 'BUSINESS'
+       'ACTIVE', 0, 0, CASE WHEN c.oznaka = 'RSD' THEN 'CHECKING' ELSE 'FX' END, 'BUSINESS'
   FROM currency_table c
  WHERE NOT EXISTS (
        SELECT 1 FROM account_table a WHERE a.vlasnik = -2 AND a.currency_id = c.id

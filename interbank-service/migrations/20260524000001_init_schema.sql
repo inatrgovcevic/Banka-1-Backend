@@ -8,7 +8,7 @@
 --   3. interbank_negotiations   — OTC §3 negotiation state (Tim 2 protokol)
 --   4. interbank_contracts      — OTC §3 finalizovani option contracts
 
-CREATE TABLE interbank_messages (
+CREATE TABLE IF NOT EXISTS interbank_messages (
     id                       BIGSERIAL                PRIMARY KEY,
     direction                VARCHAR(10)              NOT NULL,
     sender_routing_number    INT                      NOT NULL,
@@ -27,14 +27,14 @@ CREATE TABLE interbank_messages (
         UNIQUE (direction, sender_routing_number, locally_generated_key)
 );
 
-CREATE INDEX idx_interbank_messages_outbound_pending
+CREATE INDEX IF NOT EXISTS idx_interbank_messages_outbound_pending
     ON interbank_messages(status, last_attempt_at)
     WHERE direction = 'OUTBOUND' AND status IN ('PENDING_SEND', 'SENT') AND retry_count < 5;
 
-CREATE INDEX idx_interbank_messages_tx
+CREATE INDEX IF NOT EXISTS idx_interbank_messages_tx
     ON interbank_messages(transaction_id_routing, transaction_id_local);
 
-CREATE TABLE interbank_transactions (
+CREATE TABLE IF NOT EXISTS interbank_transactions (
     id                       BIGSERIAL                PRIMARY KEY,
     transaction_id_routing   INT                      NOT NULL,
     transaction_id_local     VARCHAR(64)              NOT NULL,
@@ -48,11 +48,11 @@ CREATE TABLE interbank_transactions (
         UNIQUE (transaction_id_routing, transaction_id_local)
 );
 
-CREATE INDEX idx_interbank_transactions_status_age
+CREATE INDEX IF NOT EXISTS idx_interbank_transactions_status_age
     ON interbank_transactions(status, created_at)
     WHERE status = 'PREPARED';
 
-CREATE TABLE interbank_negotiations (
+CREATE TABLE IF NOT EXISTS interbank_negotiations (
     id                         VARCHAR(64)              PRIMARY KEY,
     buyer_routing_number       INT                      NOT NULL,
     buyer_id                   VARCHAR(64)              NOT NULL,
@@ -76,14 +76,14 @@ CREATE TABLE interbank_negotiations (
     last_modified_at           TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_interbank_negotiations_remote
+CREATE INDEX IF NOT EXISTS idx_interbank_negotiations_remote
     ON interbank_negotiations(buyer_routing_number, buyer_id);
 
-CREATE INDEX idx_interbank_negotiations_ongoing_settlement
+CREATE INDEX IF NOT EXISTS idx_interbank_negotiations_ongoing_settlement
     ON interbank_negotiations(is_ongoing, settlement_date)
     WHERE is_ongoing = true;
 
-CREATE TABLE interbank_contracts (
+CREATE TABLE IF NOT EXISTS interbank_contracts (
     id                            VARCHAR(64)              PRIMARY KEY,
     negotiation_id                VARCHAR(64)              NOT NULL
         REFERENCES interbank_negotiations(id),
@@ -105,10 +105,10 @@ CREATE TABLE interbank_contracts (
     expired_at                    TIMESTAMP WITH TIME ZONE
 );
 
-CREATE INDEX idx_interbank_contracts_status_settle
+CREATE INDEX IF NOT EXISTS idx_interbank_contracts_status_settle
     ON interbank_contracts(status, settlement_date);
 
-CREATE INDEX idx_interbank_contracts_ticker_seller
+CREATE INDEX IF NOT EXISTS idx_interbank_contracts_ticker_seller
     ON interbank_contracts(seller_routing_number, seller_id, stock_ticker, status);
 -- +goose StatementEnd
 
