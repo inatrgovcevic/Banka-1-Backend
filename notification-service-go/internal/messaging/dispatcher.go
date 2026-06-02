@@ -38,6 +38,11 @@ func (d *Dispatcher) Handle(
 	req *dto.NotificationRequest,
 	routingKey string,
 ) error {
+	if model.IgnoredRoutingKeys[routingKey] {
+		d.log.Debug("silently ignoring internal command event", "routing_key", routingKey)
+		return nil
+	}
+
 	notificationType, ok := model.ResolveNotificationType(routingKey)
 	if !ok {
 		d.log.Warn("unsupported AMQP routing key — persisting failed audit",

@@ -1,5 +1,12 @@
 package model
 
+// IgnoredRoutingKeys contains internal command events that the notification-service
+// intentionally acknowledges without sending an email (no userEmail in payload).
+var IgnoredRoutingKeys = map[string]bool{
+	"card.create":    true,
+	"card.deactivate": true,
+}
+
 // RoutingKeyMap maps each RabbitMQ routing key to the corresponding NotificationType.
 var RoutingKeyMap = map[string]NotificationType{
 	"employee.created":             NotificationTypeEmployeeCreated,
@@ -10,7 +17,8 @@ var RoutingKeyMap = map[string]NotificationType{
 	"client.password_reset":      NotificationTypeClientPasswordReset,
 	"client.account_deactivated": NotificationTypeClientAccountDeact,
 
-	"verification.otp": NotificationTypeVerificationOTP,
+	"verification.otp":    NotificationTypeVerificationOTP,
+	"client.verification": NotificationTypeVerificationOTP,
 
 	"card.request_verification": NotificationTypeCardRequestVerification,
 	"card.request_success":      NotificationTypeCardRequestSuccess,
@@ -19,6 +27,7 @@ var RoutingKeyMap = map[string]NotificationType{
 	"card.unblocked":            NotificationTypeCardUnblocked,
 	"card.deactivated":          NotificationTypeCardDeactivated,
 
+	"credit.requested":          NotificationTypeCreditRequested,
 	"credit.approved":           NotificationTypeCreditApproved,
 	"credit.declined":           NotificationTypeCreditDeclined,
 	"credit.installment_failed": NotificationTypeCreditInstallmentFailed,
@@ -32,6 +41,12 @@ var RoutingKeyMap = map[string]NotificationType{
 	"otc.accepted":        NotificationTypeOTCAccepted,
 	"otc.canceled":        NotificationTypeOTCCanceled,
 	"otc.expiry_reminder": NotificationTypeOTCExpiryReminder,
+
+	"account.created":     NotificationTypeAccountCreated,
+	"account.deactivated": NotificationTypeAccountDeactivated,
+
+	"transaction.completed": NotificationTypeTransactionCompleted,
+	"transaction.denied":    NotificationTypeTransactionDenied,
 }
 
 // ResolveNotificationType returns the NotificationType for a given routing key.

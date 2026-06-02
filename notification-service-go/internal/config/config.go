@@ -119,6 +119,8 @@ func Load() (*Config, error) {
 		getenv("NOTIFICATION_TAX_ROUTING_KEY", "tax.#"),
 		getenv("NOTIFICATION_OTC_ROUTING_KEY", "otc.#"),
 		getenv("NOTIFICATION_VERIFICATION_ROUTING_KEY", "verification.#"),
+		getenv("NOTIFICATION_ACCOUNT_ROUTING_KEY", "account.#"),
+		getenv("NOTIFICATION_TRANSACTION_ROUTING_KEY", "transaction.#"),
 	}
 
 	return &Config{

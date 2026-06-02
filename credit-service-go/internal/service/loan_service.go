@@ -87,6 +87,12 @@ func (s *LoanService) Request(ctx context.Context, user auth.User, request dto.L
 		return dto.LoanRequestResponseDTO{}, err
 	}
 
+	_ = s.rabbitClient.PublishJSON(ctx, "credit.requested", EmailEvent{
+		UserEmail: accountDetails.Email,
+		Username:  accountDetails.Username,
+		EmailType: "credit.requested",
+	})
+
 	return dto.LoanRequestResponseDTO{
 		ID:        saved.ID,
 		CreatedAt: saved.CreatedAt,
@@ -137,10 +143,10 @@ func (s *LoanService) Confirmation(ctx context.Context, id int64, status model.S
 			return "", errors.New("loan request ne postoji ili nije u PENDING statusu")
 		}
 
-		_ = s.rabbitClient.PublishJSON(ctx, EmailEvent{
+		_ = s.rabbitClient.PublishJSON(ctx, "credit.declined", EmailEvent{
 			UserEmail: loanRequest.UserEmail,
 			Username:  loanRequest.Username,
-			EmailType: "loan.request.declined",
+			EmailType: "credit.declined",
 		})
 
 		return "ODBIJEN ZAHTEV", nil
@@ -225,10 +231,10 @@ func (s *LoanService) Confirmation(ctx context.Context, id int64, status model.S
 		return "", err
 	}
 
-	_ = s.rabbitClient.PublishJSON(ctx, EmailEvent{
+	_ = s.rabbitClient.PublishJSON(ctx, "credit.approved", EmailEvent{
 		UserEmail: loanRequest.UserEmail,
 		Username:  loanRequest.Username,
-		EmailType: "loan.request.approved",
+		EmailType: "credit.approved",
 	})
 
 	return "ODOBREN ZAHTEV", nil

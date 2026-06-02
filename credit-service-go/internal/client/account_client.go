@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"Banka1Back/credit-service-go/internal/model"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/shopspring/decimal"
 )
 
@@ -30,6 +32,25 @@ func NewAccountClient() *AccountClient {
 	}
 }
 
+func serviceToken() string {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return ""
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub":         "credit-service",
+		"iss":         "banka1",
+		"roles":       "SERVICE",
+		"permissions": []string{},
+		"exp":         time.Now().Add(5 * time.Minute).Unix(),
+	})
+	signed, err := token.SignedString([]byte(secret))
+	if err != nil {
+		return ""
+	}
+	return signed
+}
+
 type AccountDetailsResponse struct {
 	OwnerID  int64              `json:"ownerId"`
 	Currency model.CurrencyCode `json:"currency"`
@@ -38,8 +59,8 @@ type AccountDetailsResponse struct {
 }
 
 type BankPaymentRequest struct {
-	FromBankNumber *string         `json:"fromBankNumber"`
-	ToBankNumber   *string         `json:"toBankNumber"`
+	FromBankNumber *string         `json:"fromAccountNumber"`
+	ToBankNumber   *string         `json:"toAccountNumber"`
 	Amount         decimal.Decimal `json:"amount"`
 }
 
@@ -51,7 +72,7 @@ func (c *AccountClient) GetDetails(accountNumber string) (AccountDetailsResponse
 		return AccountDetailsResponse{}, err
 	}
 
-	if token := os.Getenv("INTERNAL_AUTH_TOKEN"); token != "" {
+	if token := serviceToken(); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
@@ -95,7 +116,7 @@ func (c *AccountClient) TransactionFromBank(toBankNumber string, amount decimal.
 
 	req.Header.Set("Content-Type", "application/json")
 
-	if token := os.Getenv("INTERNAL_AUTH_TOKEN"); token != "" {
+	if token := serviceToken(); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
@@ -133,7 +154,7 @@ func (c *AccountClient) TransactionToBank(fromBankNumber string, amount decimal.
 
 	req.Header.Set("Content-Type", "application/json")
 
-	if token := os.Getenv("INTERNAL_AUTH_TOKEN"); token != "" {
+	if token := serviceToken(); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 

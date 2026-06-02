@@ -59,7 +59,7 @@ func (r *RabbitClient) Close() {
 	}
 }
 
-func (r *RabbitClient) PublishJSON(ctx context.Context, payload any) error {
+func (r *RabbitClient) PublishJSON(ctx context.Context, routingKey string, payload any) error {
 	if r == nil || !r.enabled {
 		return nil
 	}
@@ -72,7 +72,7 @@ func (r *RabbitClient) PublishJSON(ctx context.Context, payload any) error {
 	return r.channel.PublishWithContext(
 		ctx,
 		r.exchange,
-		r.routingKey,
+		routingKey,
 		false,
 		false,
 		amqp.Publishing{

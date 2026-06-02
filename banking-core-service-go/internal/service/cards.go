@@ -20,14 +20,15 @@ import (
 var cardBrands = []string{"VISA", "MASTERCARD", "DINACARD", "AMEX"}
 
 type CardService struct {
-	db       *sql.DB
-	cfg      config.Config
-	accounts *AccountService
-	rabbit   *RabbitPublisher
+	db           *sql.DB
+	cfg          config.Config
+	accounts     *AccountService
+	verification *VerificationService
+	rabbit       *RabbitPublisher
 }
 
-func NewCardService(db *sql.DB, cfg config.Config, accounts *AccountService, rabbit *RabbitPublisher) *CardService {
-	return &CardService{db: db, cfg: cfg, accounts: accounts, rabbit: rabbit}
+func NewCardService(db *sql.DB, cfg config.Config, accounts *AccountService, verification *VerificationService, rabbit *RabbitPublisher) *CardService {
+	return &CardService{db: db, cfg: cfg, accounts: accounts, verification: verification, rabbit: rabbit}
 }
 
 type AutoCardCreationRequest struct {
@@ -280,7 +281,7 @@ func (s *CardService) GetCardsByAccount(ctx context.Context, accountNumber strin
 		return nil, err
 	}
 	defer rows.Close()
-	var out []CardSummaryResponse
+	out := []CardSummaryResponse{}
 	for rows.Next() {
 		row, err := scanCard(rows)
 		if err != nil {
@@ -297,7 +298,7 @@ func (s *CardService) GetInternalCardsByAccount(ctx context.Context, accountNumb
 		return nil, err
 	}
 	defer rows.Close()
-	var out []CardInternalSummaryResponse
+	out := []CardInternalSummaryResponse{}
 	for rows.Next() {
 		row, err := scanCard(rows)
 		if err != nil {
@@ -501,8 +502,8 @@ func (s *CardService) ensureVerification(ctx context.Context, verificationID int
 	if verificationID == 0 {
 		return cardBusinessError(400, "ERR_CARD_015", "Invalid request state", "Verification ID must be provided.")
 	}
-	ok, err := s.accounts.verificationVerified(ctx, verificationID)
-	if err != nil || !ok {
+	status, err := s.verification.Status(ctx, verificationID)
+	if err != nil || !strings.EqualFold(status.Status, "VERIFIED") {
 		return cardBusinessError(400, "ERR_CARD_015", "Invalid request state", "Verification is not completed.")
 	}
 	return nil

@@ -68,6 +68,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/accounts/api/currencies/"):
 		h.getCurrencyByPath(w, r, strings.TrimPrefix(path, "/accounts/api/currencies/"))
 
+	case r.Method == http.MethodGet && path == "/accounts/api/sifra-delatnosti":
+		h.listSifraDelatnosti(w, r)
+
 	case r.Method == http.MethodPost && path == "/accounts/employee/accounts/checking":
 		h.createCheckingAccount(w, r)
 	case r.Method == http.MethodPost && path == "/accounts/employee/accounts/fx":
@@ -648,6 +651,7 @@ func isKnownPath(path string) bool {
 		"/actuator/health", "/actuator/health/liveness", "/actuator/health/readiness", "/actuator/info", "/actuator/prometheus",
 		"/verification/generate", "/verification/validate",
 		"/accounts/api/currencies/getAll", "/accounts/api/currencies/getAllPage", "/accounts/api/currencies",
+		"/accounts/api/sifra-delatnosti",
 		"/accounts/employee/accounts/checking", "/accounts/employee/accounts/fx",
 		"/accounts/employee/accounts", "/accounts/employee/accounts/bank",
 		"/accounts/client/accounts",

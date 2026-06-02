@@ -10,6 +10,11 @@ import (
 	"banka1/banking-core-service-go/internal/service"
 )
 
+func (h *Handler) listSifraDelatnosti(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.services.Accounts.ListSifraDelatnosti(r.Context())
+	respond(w, resp, http.StatusOK, err)
+}
+
 func (h *Handler) listCurrencies(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.services.Accounts.ListCurrencies(r.Context())
 	respond(w, resp, http.StatusOK, err)

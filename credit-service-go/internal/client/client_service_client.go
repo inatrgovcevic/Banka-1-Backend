@@ -15,7 +15,7 @@ type ClientServiceClient struct {
 func NewClientServiceClient() *ClientServiceClient {
 	baseURL := os.Getenv("SERVICES_USER_URL")
 	if baseURL == "" {
-		baseURL = "http://localhost:8083"
+		baseURL = "http://localhost:8081"
 	}
 
 	return &ClientServiceClient{
@@ -25,14 +25,14 @@ func NewClientServiceClient() *ClientServiceClient {
 }
 
 func (c *ClientServiceClient) AddMarginPermission(clientID int64) error {
-	url := fmt.Sprintf("%s/customers/margin/%d", c.baseURL, clientID)
+	url := fmt.Sprintf("%s/clients/customers/margin/%d", c.baseURL, clientID)
 
 	req, err := http.NewRequest(http.MethodPut, url, nil)
 	if err != nil {
 		return err
 	}
 
-	if token := os.Getenv("INTERNAL_AUTH_TOKEN"); token != "" {
+	if token := serviceToken(); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 

@@ -1,6 +1,7 @@
 package user
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -95,7 +96,11 @@ func (h *Handlers) employeeLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) employeeCheckActivate(w http.ResponseWriter, r *http.Request) {
-	id, err := h.service.CheckEmployeeToken(r.Context(), r.URL.Query().Get("confirmationToken"))
+	token := r.URL.Query().Get("confirmationToken")
+	id, err := h.service.CheckEmployeeToken(r.Context(), token)
+	if errors.Is(err, ErrNotFound) {
+		id, err = h.service.CheckClientToken(r.Context(), token)
+	}
 	writeResult(w, id, err, http.StatusOK)
 }
 
@@ -105,6 +110,9 @@ func (h *Handlers) employeeActivate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := h.service.ActivateEmployee(r.Context(), req)
+	if errors.Is(err, ErrInvalidToken) {
+		err = h.service.ActivateClient(r.Context(), req)
+	}
 	writeResult(w, "Lozinka je uspesno promenjena.", err, http.StatusOK)
 }
 

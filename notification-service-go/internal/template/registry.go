@@ -96,6 +96,10 @@ var defaultTemplates = map[string]EmailTemplate{
 		Subject:      "Card Deactivated",
 		BodyTemplate: "Zdravo {{name}}, vasa kartica {{cardName}} za racun {{accountNumber}} sa brojem {{cardNumber}} je deaktivirana.",
 	},
+	"CREDIT_REQUESTED": {
+		Subject:      "Zahtev za kredit primljen",
+		BodyTemplate: "Zdravo {{name}}, vas zahtev za kredit je uspesno podnet i ceka na obradu.",
+	},
 	"CREDIT_APPROVED": {
 		Subject:      "Credit Request Approved",
 		BodyTemplate: "Zdravo {{name}}, vas kreditni zahtev sa identifikatorom {{creditId}} je odobren. Odobren iznos: {{approvedAmount}}.",
@@ -135,5 +139,21 @@ var defaultTemplates = map[string]EmailTemplate{
 	"OTC_EXPIRY_REMINDER": {
 		Subject:      "OTC Contract Expiry Reminder",
 		BodyTemplate: "Zdravo {{name}}, OTC ugovor {{contractId}} za ticker {{stockTicker}} istice za {{reminderDays}} dana, na datum {{expiryDate}}. Status: {{status}}, vreme obavestenja: {{timestamp}}.",
+	},
+	"ACCOUNT_CREATED": {
+		Subject:      "Otvaranje računa",
+		BodyTemplate: "Zdravo {{name}}, vas bancarski racun je uspesno otvoren.",
+	},
+	"ACCOUNT_DEACTIVATED": {
+		Subject:      "Deaktivacija računa",
+		BodyTemplate: "Zdravo {{name}}, vas bancarski racun je deaktiviran.",
+	},
+	"TRANSACTION_COMPLETED": {
+		Subject:      "Potvrda plaćanja",
+		BodyTemplate: "Zdravo {{name}}, vaseplacanje je uspesno izvrseno.",
+	},
+	"TRANSACTION_DENIED": {
+		Subject:      "Plaćanje odbijeno",
+		BodyTemplate: "Zdravo {{name}}, vase placanje nije moglo biti izvrseno.",
 	},
 }

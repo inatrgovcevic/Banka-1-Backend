@@ -107,6 +107,7 @@ func (s *TransactionService) NewPayment(ctx context.Context, principal Principal
 	}
 
 	status := "DENIED"
+	var applyErr error
 	payment := PaymentRequest{
 		FromAccountNumber: req.FromAccountNumber,
 		ToAccountNumber:   req.ToAccountNumber,
@@ -117,7 +118,7 @@ func (s *TransactionService) NewPayment(ctx context.Context, principal Principal
 	}
 	sameOwner := info.FromVlasnik == info.ToVlasnik
 	for attempt := 0; attempt < 3; attempt++ {
-		if _, err = s.accounts.ApplyPaymentWithoutRecord(ctx, payment, sameOwner); err == nil {
+		if _, applyErr = s.accounts.ApplyPaymentWithoutRecord(ctx, payment, sameOwner); applyErr == nil {
 			status = "COMPLETED"
 			break
 		}
@@ -130,7 +131,7 @@ func (s *TransactionService) NewPayment(ctx context.Context, principal Principal
 		_ = orderNumber
 		return NewPaymentResponse{Message: "Uspesan payment", Status: status}, nil
 	}
-	return NewPaymentResponse{Message: "Payment nije bio uspesan", Status: status}, nil
+	return NewPaymentResponse{}, applyErr
 }
 
 func (s *TransactionService) FindByClient(ctx context.Context, clientID int64, page, size int) (Page[TransactionResponse], error) {

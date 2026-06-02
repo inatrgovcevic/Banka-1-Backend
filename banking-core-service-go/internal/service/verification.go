@@ -49,6 +49,7 @@ type VerificationValidateResponse struct {
 	Valid             bool   `json:"valid"`
 	Status            string `json:"status"`
 	RemainingAttempts int64  `json:"remainingAttempts"`
+	SessionID         int64  `json:"sessionId"`
 }
 
 type VerificationStatusResponse struct {
@@ -193,7 +194,7 @@ func (s *VerificationService) Validate(ctx context.Context, req VerificationVali
 		if err := tx.Commit(); err != nil {
 			return VerificationValidateResponse{}, err
 		}
-		return VerificationValidateResponse{Valid: true, Status: "VERIFIED", RemainingAttempts: 0}, nil
+		return VerificationValidateResponse{Valid: true, Status: "VERIFIED", RemainingAttempts: 0, SessionID: req.SessionID}, nil
 	}
 
 	session.AttemptCount++

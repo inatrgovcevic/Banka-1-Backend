@@ -143,6 +143,10 @@ func routeAuth(method, path string) (authMode, []string) {
 	case has(path, "/accounts/api/currencies"):
 		return authRoles, rolesCurrency
 
+	// --- sifra delatnosti: CLIENT_BASIC,BASIC ---
+	case path == "/accounts/api/sifra-delatnosti":
+		return authRoles, rolesCurrency
+
 	// --- employee accounts: BASIC (osim GET /accounts/employee/accounts -> BASIC,SERVICE) ---
 	case has(path, "/accounts/employee/"):
 		if g && path == "/accounts/employee/accounts" {

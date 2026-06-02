@@ -60,6 +60,7 @@ const (
 	NotificationTypeCardBlocked             NotificationType = "CARD_BLOCKED"
 	NotificationTypeCardUnblocked           NotificationType = "CARD_UNBLOCKED"
 	NotificationTypeCardDeactivated         NotificationType = "CARD_DEACTIVATED"
+	NotificationTypeCreditRequested         NotificationType = "CREDIT_REQUESTED"
 	NotificationTypeCreditApproved          NotificationType = "CREDIT_APPROVED"
 	NotificationTypeCreditDeclined          NotificationType = "CREDIT_DECLINED"
 	NotificationTypeCreditInstallmentFailed NotificationType = "CREDIT_INSTALLMENT_FAILED"
@@ -70,6 +71,12 @@ const (
 	NotificationTypeOTCAccepted             NotificationType = "OTC_ACCEPTED"
 	NotificationTypeOTCCanceled             NotificationType = "OTC_CANCELED"
 	NotificationTypeOTCExpiryReminder       NotificationType = "OTC_EXPIRY_REMINDER"
+
+	NotificationTypeAccountCreated     NotificationType = "ACCOUNT_CREATED"
+	NotificationTypeAccountDeactivated NotificationType = "ACCOUNT_DEACTIVATED"
+
+	NotificationTypeTransactionCompleted NotificationType = "TRANSACTION_COMPLETED"
+	NotificationTypeTransactionDenied    NotificationType = "TRANSACTION_DENIED"
 )
 
 // ErrDeliveryNotEligible is returned by MarkProcessing when the target delivery

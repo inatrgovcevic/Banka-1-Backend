@@ -207,6 +207,28 @@ type InfoResponse struct {
 	FromUsername     string `json:"fromUsername,omitempty"`
 }
 
+type SifraDelatnostiResponse struct {
+	Sifra string `json:"sifra"`
+	Grana string `json:"grana"`
+}
+
+func (s *AccountService) ListSifraDelatnosti(ctx context.Context) ([]SifraDelatnostiResponse, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT sifra, grana FROM sifra_delatnosti_table ORDER BY sifra`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SifraDelatnostiResponse
+	for rows.Next() {
+		var item SifraDelatnostiResponse
+		if err := rows.Scan(&item.Sifra, &item.Grana); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func (s *AccountService) ListCurrencies(ctx context.Context) ([]CurrencyResponse, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, version, naziv, oznaka, simbol, opis, status
@@ -996,8 +1018,9 @@ RETURNING id
 }
 
 func (s *AccountService) sifraID(ctx context.Context, runner sqlRunner, code string) (int64, error) {
+	normalized := strings.ReplaceAll(strings.TrimSpace(code), ".", "")
 	var id int64
-	err := runner.QueryRowContext(ctx, "SELECT id FROM sifra_delatnosti_table WHERE sifra = $1", code).Scan(&id)
+	err := runner.QueryRowContext(ctx, "SELECT id FROM sifra_delatnosti_table WHERE sifra = $1", normalized).Scan(&id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, BadRequest("Nije uneta sifra delatnosti")

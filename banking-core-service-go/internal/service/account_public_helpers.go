@@ -447,20 +447,19 @@ func (s *AccountService) applyPaymentTx(ctx context.Context, tx *sql.Tx, from, t
 	if err != nil {
 		return err
 	}
-	targetAmount := req.ToAmount.Sub(req.Commission)
-	if targetAmount.Sign() <= 0 {
-		return BadRequest("Iznos posle konverzije mora biti veci od 0")
-	}
-	if err := s.DebitTx(ctx, tx, from.AccountNumber, req.FromAmount, from.OwnerID); err != nil {
+	// Commission is in the source currency — deduct it from the sender along with FromAmount.
+	// The receiver always gets the full converted ToAmount.
+	senderDebit := req.FromAmount.Add(req.Commission)
+	if err := s.DebitTx(ctx, tx, from.AccountNumber, senderDebit, from.OwnerID); err != nil {
 		return err
 	}
-	if err := s.CreditTx(ctx, tx, bankSender.AccountNumber, req.FromAmount, bankSender.OwnerID); err != nil {
+	if err := s.CreditTx(ctx, tx, bankSender.AccountNumber, senderDebit, bankSender.OwnerID); err != nil {
 		return err
 	}
-	if err := s.DebitTx(ctx, tx, bankTarget.AccountNumber, targetAmount, bankTarget.OwnerID); err != nil {
+	if err := s.DebitTx(ctx, tx, bankTarget.AccountNumber, req.ToAmount, bankTarget.OwnerID); err != nil {
 		return err
 	}
-	return s.CreditTx(ctx, tx, to.AccountNumber, targetAmount, to.OwnerID)
+	return s.CreditTx(ctx, tx, to.AccountNumber, req.ToAmount, to.OwnerID)
 }
 
 func (s *AccountService) recordPayment(ctx context.Context, tx *sql.Tx, from, to accountBalanceRow, fromAmount, toAmount, commission decimal.Decimal, purpose, reference string) error {

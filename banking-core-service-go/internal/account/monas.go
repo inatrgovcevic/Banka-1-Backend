@@ -29,9 +29,9 @@ func GenerateMONAS(ctx context.Context, db ExistsChecker, typeVal string, random
 		random = rand.New(rand.NewSource(rand.Int63()))
 	}
 	for attempt := 0; attempt < maxGenerationAttempts; attempt++ {
-		randomPart := make([]byte, 0, 9)
+		randomPart := make([]byte, 0, 11)
 		sum := monasFixedPrefixSum + int(typeVal[0]-'0') + int(typeVal[1]-'0')
-		for i := 0; i < 8; i++ {
+		for i := 0; i < 9; i++ {
 			d := random.Intn(10)
 			randomPart = append(randomPart, byte('0'+d))
 			sum += d
@@ -57,13 +57,13 @@ func GenerateMONAS(ctx context.Context, db ExistsChecker, typeVal string, random
 var ErrMONASGenerationFailed = errors.New("nije moguce generisati jedinstven broj racuna")
 
 func ValidateMONAS(number string) bool {
-	if len(number) != 18 || !allDigits(number) {
+	if len(number) != 19 || !allDigits(number) {
 		return false
 	}
 	if number[:len(monasFixedPrefix)] != monasFixedPrefix {
 		return false
 	}
-	if !monasTypePattern.MatchString(number[16:18]) {
+	if !monasTypePattern.MatchString(number[17:19]) {
 		return false
 	}
 	return DigitSum(number)%11 == 0

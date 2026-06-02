@@ -46,7 +46,7 @@ func (h *LoanHandler) CreateLoanRequest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if !currentUser.HasRole("CLIENT_BASIC") {
+	if !currentUser.HasAnyRole("CLIENT_BASIC", "CLIENT_TRADING") {
 		writeError(w, http.StatusForbidden, "ERR_FORBIDDEN", "Zabranjen pristup", "Nemate dozvolu za ovu metodu.")
 		return
 	}
@@ -67,7 +67,7 @@ func (h *LoanHandler) FindAllLoanRequests(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if !currentUser.HasRole("BASIC") {
+	if !currentUser.HasAnyRole("BASIC", "ADMIN", "SUPERVISOR", "AGENT") {
 		writeError(w, http.StatusForbidden, "ERR_FORBIDDEN", "Zabranjen pristup", "Nemate dozvolu za ovu metodu.")
 		return
 	}
@@ -109,7 +109,7 @@ func (h *LoanHandler) ConfirmLoanRequest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if !currentUser.HasRole("BASIC") {
+	if !currentUser.HasAnyRole("BASIC", "ADMIN", "SUPERVISOR", "AGENT") {
 		writeError(w, http.StatusForbidden, "ERR_FORBIDDEN", "Zabranjen pristup", "Nemate dozvolu za ovu metodu.")
 		return
 	}
@@ -157,7 +157,7 @@ func (h *LoanHandler) FindClientLoans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !currentUser.HasRole("CLIENT_BASIC") {
+	if !currentUser.HasAnyRole("CLIENT_BASIC", "CLIENT_TRADING") {
 		writeError(w, http.StatusForbidden, "ERR_FORBIDDEN", "Zabranjen pristup", "Nemate dozvolu za ovu metodu.")
 		return
 	}
@@ -188,7 +188,7 @@ func (h *LoanHandler) GetLoanInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !currentUser.HasAnyRole("CLIENT_BASIC", "BASIC") {
+	if !currentUser.HasAnyRole("CLIENT_BASIC", "CLIENT_TRADING", "BASIC") {
 		writeError(w, http.StatusForbidden, "ERR_FORBIDDEN", "Zabranjen pristup", "Nemate dozvolu za ovu metodu.")
 		return
 	}
@@ -216,7 +216,7 @@ func (h *LoanHandler) FindAllLoans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !currentUser.HasRole("BASIC") {
+	if !currentUser.HasAnyRole("BASIC", "ADMIN", "SUPERVISOR", "AGENT") {
 		writeError(w, http.StatusForbidden, "ERR_FORBIDDEN", "Zabranjen pristup", "Nemate dozvolu za ovu metodu.")
 		return
 	}

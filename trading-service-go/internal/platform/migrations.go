@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -24,15 +25,15 @@ import (
 //     uses; compose default is "dev"). Keeps demo fixtures out of a prod database.
 func RunMigrations(ctx context.Context, db *pgxpool.Pool, dir string) error {
 	if _, err := db.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS go_schema_migrations (
+		CREATE TABLE IF NOT EXISTS public.go_schema_migrations (
 			filename TEXT PRIMARY KEY,
 			applied_at TIMESTAMP NOT NULL DEFAULT now()
 		)`); err != nil {
-		return err
+		return fmt.Errorf("create table step failed: %w", err)
 	}
 
 	if err := baselineExistingJavaSchema(ctx, db, dir); err != nil {
-		return err
+		return fmt.Errorf("baseline step failed: %w", err)
 	}
 
 	devSeed := devSeedEnabled()
@@ -51,8 +52,8 @@ func RunMigrations(ctx context.Context, db *pgxpool.Pool, dir string) error {
 
 	for _, file := range files {
 		var applied bool
-		if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM go_schema_migrations WHERE filename = $1)`, file).Scan(&applied); err != nil {
-			return err
+		if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.go_schema_migrations WHERE filename = $1)`, file).Scan(&applied); err != nil {
+			return fmt.Errorf("check loop step failed for %s: %w", file, err)
 		}
 		if applied {
 			continue
@@ -65,22 +66,22 @@ func RunMigrations(ctx context.Context, db *pgxpool.Pool, dir string) error {
 
 		sqlBytes, err := os.ReadFile(filepath.Join(dir, file))
 		if err != nil {
-			return err
+			return fmt.Errorf("read file failed for %s: %w", file, err)
 		}
 		tx, err := db.Begin(ctx)
 		if err != nil {
-			return err
+			return fmt.Errorf("begin tx failed for %s: %w", file, err)
 		}
 		if _, err := tx.Exec(ctx, string(sqlBytes)); err != nil {
 			_ = tx.Rollback(ctx)
-			return err
+			return fmt.Errorf("execute sql failed for %s: %w", file, err)
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO go_schema_migrations(filename) VALUES ($1)`, file); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO public.go_schema_migrations(filename) VALUES ($1)`, file); err != nil {
 			_ = tx.Rollback(ctx)
-			return err
+			return fmt.Errorf("insert migration tracking failed for %s: %w", file, err)
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return err
+			return fmt.Errorf("commit tx failed for %s: %w", file, err)
 		}
 	}
 
@@ -118,8 +119,8 @@ func devSeedEnabled() bool {
 // fresh database (no sentinel tables) it is a no-op and the migrations run normally.
 func baselineExistingJavaSchema(ctx context.Context, db *pgxpool.Pool, dir string) error {
 	var tracked int
-	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM go_schema_migrations`).Scan(&tracked); err != nil {
-		return err
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM public.go_schema_migrations`).Scan(&tracked); err != nil {
+		return fmt.Errorf("baseline check count failed: %w", err)
 	}
 	if tracked > 0 {
 		return nil
@@ -127,10 +128,10 @@ func baselineExistingJavaSchema(ctx context.Context, db *pgxpool.Pool, dir strin
 
 	var hasPortfolio, hasOrders bool
 	if err := db.QueryRow(ctx, `SELECT to_regclass('public.portfolio') IS NOT NULL`).Scan(&hasPortfolio); err != nil {
-		return err
+		return fmt.Errorf("baseline check portfolio failed: %w", err)
 	}
 	if err := db.QueryRow(ctx, `SELECT to_regclass('public.orders') IS NOT NULL`).Scan(&hasOrders); err != nil {
-		return err
+		return fmt.Errorf("baseline check orders failed: %w", err)
 	}
 	if !hasPortfolio || !hasOrders {
 		return nil
@@ -148,7 +149,7 @@ func baselineExistingJavaSchema(ctx context.Context, db *pgxpool.Pool, dir strin
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".sql" {
 			continue
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO go_schema_migrations(filename) VALUES ($1) ON CONFLICT DO NOTHING`, entry.Name()); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO public.go_schema_migrations(filename) VALUES ($1) ON CONFLICT DO NOTHING`, entry.Name()); err != nil {
 			_ = tx.Rollback(ctx)
 			return err
 		}

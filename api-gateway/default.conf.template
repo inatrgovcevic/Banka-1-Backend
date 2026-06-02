@@ -44,6 +44,12 @@ server {
     proxy_hide_header Access-Control-Expose-Headers;
     proxy_hide_header Access-Control-Max-Age;
 
+    # Short-circuit all CORS preflight requests before they reach any backend.
+    # Backends must never see OPTIONS — their auth middleware rejects it with 401.
+    if ($request_method = OPTIONS) {
+        return 204;
+    }
+
     # Resolve service names at request time so the gateway can start for a
     # partial Go-only stack; unused Java upstreams do not need to exist.
     resolver 127.0.0.11 valid=10s ipv6=off;
@@ -136,10 +142,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    location = /transactions {
-        return 301 /transactions/;
-    }
-    location /transactions/ {
+    location ~ ^/transactions(/.*)?$ {
         proxy_pass $banking_core_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -147,10 +150,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    location = /transfers {
-        return 301 /transfers/;
-    }
-    location /transfers/ {
+    location ~ ^/transfers(/.*)?$ {
         proxy_pass $banking_core_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -158,10 +158,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    location = /verification {
-        return 301 /verification/;
-    }
-    location /verification/ {
+    location ~ ^/verification(/.*)?$ {
         proxy_pass $banking_core_service;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
