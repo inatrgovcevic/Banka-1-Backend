@@ -30,6 +30,7 @@ import (
 // added per phase (P1: analytics; P2: portfolio/actuary; P3: order; P4: tax;
 // P5: funds + saga consumers + snapshot scheduler).
 type App struct {
+	DB             *pgxpool.Pool
 	Analytics      *analytics.Service
 	Portfolio      *portfolio.Service
 	Actuary        *actuary.Service
@@ -123,6 +124,7 @@ func NewApp(cfg platform.Config, db *pgxpool.Pool, jwtService *gpauth.Service, l
 	interbankSvc := interbank.NewService(interbank.NewRepository(db), portfolioRepo, cl.Market, cfg.RoutingNumber, logger)
 
 	app := &App{
+		DB:             db,
 		Analytics:      analytics.NewService(analytics.NewRepository(db)),
 		Portfolio:      portfolio.NewService(portfolioRepo, cl.Market, cl.Account, taxSvc),
 		Actuary:        actuary.NewService(actuaryRepo, cl.Employee),

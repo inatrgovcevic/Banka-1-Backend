@@ -47,10 +47,17 @@ func registerRoutes(handle func(method, path string, handler http.Handler), app 
 	//  - GET /orders/my-orders: CLIENT_BASIC/CLIENT_TRADING/CLIENT
 	trader := []string{"CLIENT_TRADING", "AGENT", "SUPERVISOR"}
 	clientRoles := []string{"CLIENT_BASIC", "CLIENT_TRADING", "CLIENT"}
+	recurringRoles := []string{"CLIENT_BASIC", "CLIENT_TRADING", "AGENT", "SUPERVISOR"}
+	authenticated := []string{"CLIENT_BASIC", "CLIENT_TRADING", "CLIENT", "AGENT", "SUPERVISOR", "ADMIN", "SERVICE"}
 	handle(http.MethodPost, "/orders/buy", orderSecured(jwtService, trader, handlers.OrderBuy))
 	handle(http.MethodPost, "/orders/sell", orderSecured(jwtService, trader, handlers.OrderSell))
 	handle(http.MethodGet, "/orders", orderSecured(jwtService, supervisor, handlers.OrderList))
 	handle(http.MethodGet, "/orders/my-orders", orderSecured(jwtService, clientRoles, handlers.OrderMyOrders))
+	handle(http.MethodGet, "/orders/recurring", orderSecured(jwtService, recurringRoles, handlers.RecurringOrders))
+	handle(http.MethodPost, "/orders/recurring", orderSecured(jwtService, recurringRoles, handlers.RecurringOrders))
+	handle(http.MethodPost, "/orders/recurring/{id}/pause", orderSecured(jwtService, recurringRoles, handlers.RecurringOrderPause))
+	handle(http.MethodPost, "/orders/recurring/{id}/resume", orderSecured(jwtService, recurringRoles, handlers.RecurringOrderResume))
+	handle(http.MethodDelete, "/orders/recurring/{id}", orderSecured(jwtService, recurringRoles, handlers.RecurringOrderDelete))
 	handle(http.MethodPost, "/orders/{id}/confirm", orderSecured(jwtService, trader, handlers.OrderConfirm))
 	handle(http.MethodPost, "/orders/{id}/cancel", orderSecured(jwtService, trader, handlers.OrderCancel))
 	handle(http.MethodPut, "/orders/{id}/cancel", orderSecured(jwtService, supervisor, handlers.OrderCancelSupervisor))
@@ -70,6 +77,15 @@ func registerRoutes(handle func(method, path string, handler http.Handler), app 
 	handle(http.MethodGet, "/tax/capital-gains/{userId}", orderSecured(jwtService, supervisor, handlers.TaxUserDebt))
 	handle(http.MethodGet, "/tax/tracking", orderSecured(jwtService, supervisor, handlers.TaxTracking))
 
+	// C3 TODO additions: watchlist, price alerts, audit log, and dividend history.
+	handle(http.MethodGet, "/watchlist", orderSecured(jwtService, authenticated, handlers.Watchlists))
+	handle(http.MethodPost, "/watchlist", orderSecured(jwtService, authenticated, handlers.Watchlists))
+	handle(http.MethodDelete, "/watchlist/items/{id}", orderSecured(jwtService, authenticated, handlers.WatchlistItemDelete))
+	handle(http.MethodGet, "/alerts", orderSecured(jwtService, authenticated, handlers.PriceAlerts))
+	handle(http.MethodPost, "/alerts", orderSecured(jwtService, authenticated, handlers.PriceAlerts))
+	handle(http.MethodGet, "/audit-log", orderSecured(jwtService, []string{"ADMIN", "SUPERVISOR"}, handlers.AuditLog))
+	handle(http.MethodGet, "/portfolio/dividends", orderSecured(jwtService, portfolioRoles, handlers.PortfolioDividends))
+
 	// Funds (trading-service module). Per InvestmentFundController:
 	//  - Discovery / details / analytics / securities / performance: any
 	//    authenticated user (no @PreAuthorize on the GETs).
@@ -82,7 +98,6 @@ func registerRoutes(handle func(method, path string, handler http.Handler), app 
 	// Errors throw IllegalArgument/IllegalStateException → OTC 404/409 shape
 	// via writeDomainError (OtcExceptionHandler is HIGHEST_PRECEDENCE in the
 	// consolidated JVM).
-	authenticated := []string{"CLIENT_BASIC", "CLIENT_TRADING", "CLIENT", "AGENT", "SUPERVISOR", "ADMIN", "SERVICE"}
 	fundManage := func(h http.HandlerFunc) http.Handler {
 		return jwtService.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			principal, ok := gpauth.PrincipalFromContext(r.Context())

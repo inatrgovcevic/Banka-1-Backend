@@ -3,9 +3,16 @@ package user
 import (
 	"context"
 	"errors"
+	"regexp"
+	"strings"
 	"time"
 
 	"banka1/user-service-go/internal/platform"
+)
+
+var (
+	emailPattern = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$`)
+	phonePattern = regexp.MustCompile(`^\+?[0-9]+$`)
 )
 
 type Service struct {
@@ -34,6 +41,9 @@ func (s *Service) EmployeeLogin(ctx context.Context, req LoginRequest) (TokenRes
 	}
 	if employee.PasswordHash == nil || !platform.VerifyPassword(req.Password, *employee.PasswordHash) {
 		_ = s.repo.RegisterFailedEmployeeLogin(ctx, employee, s.cfg.EmployeeLockoutAttempts, s.cfg.EmployeeLockoutDuration)
+		if employee.FailedLoginAttempts+1 >= s.cfg.EmployeeLockoutAttempts {
+			return TokenResponse{}, ErrLockedAccount
+		}
 		return TokenResponse{}, ErrInvalidLogin
 	}
 	permissions := s.repo.EmployeePermissions(ctx, employee.ID, employee.Role)
@@ -219,6 +229,9 @@ func (s *Service) GetEmployee(ctx context.Context, id int64) (EmployeeResponse, 
 }
 
 func (s *Service) CreateEmployee(ctx context.Context, req EmployeeCreateRequest) (EmployeeResponse, error) {
+	if err := validateEmployeeCreate(req); err != nil {
+		return EmployeeResponse{}, err
+	}
 	permissions := employeePermissions(defaultString(req.Role, "BASIC"))
 	employee, err := s.repo.CreateEmployee(ctx, req, permissions)
 	if err != nil {
@@ -232,6 +245,27 @@ func (s *Service) CreateEmployee(ctx context.Context, req EmployeeCreateRequest)
 		}
 	}
 	return employeeDTO(employee), nil
+}
+
+func validateEmployeeCreate(req EmployeeCreateRequest) error {
+	if !emailPattern.MatchString(strings.TrimSpace(req.Email)) {
+		return ErrBadRequest
+	}
+	phone := strings.TrimSpace(req.BrojTelefona)
+	if phone != "" && !phonePattern.MatchString(phone) {
+		return ErrBadRequest
+	}
+	dob, err := time.Parse("2006-01-02", strings.TrimSpace(req.DatumRodjenja))
+	if err != nil {
+		return ErrBadRequest
+	}
+	today := time.Now()
+	today = time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, today.Location())
+	dobDay := time.Date(dob.Year(), dob.Month(), dob.Day(), 0, 0, 0, 0, today.Location())
+	if dobDay.After(today) {
+		return ErrBadRequest
+	}
+	return nil
 }
 
 func (s *Service) UpdateEmployee(ctx context.Context, id int64, req EmployeeUpdateRequest) (EmployeeResponse, error) {
