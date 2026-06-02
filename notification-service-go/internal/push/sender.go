@@ -4,49 +4,76 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
+
+	"golang.org/x/oauth2/google"
 )
 
-const fcmLegacyEndpoint = "https://fcm.googleapis.com/fcm/send"
-
 type SenderConfig struct {
-	ServerKey    string
-	HTTPTimeout  time.Duration
+	CredentialsFile string
+	ProjectID       string
+	HTTPTimeout     time.Duration
 }
 
-func SenderConfigFromEnv() SenderConfig {
-	return SenderConfig{
-		ServerKey:   os.Getenv("FCM_SERVER_KEY"),
-		HTTPTimeout: 15 * time.Second,
+func SenderConfigFromEnv() (SenderConfig, error) {
+	creds := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if creds == "" {
+		return SenderConfig{}, errors.New("FCM: GOOGLE_APPLICATION_CREDENTIALS env var is required (path to service account JSON key file)")
 	}
+	projectID := os.Getenv("FCM_PROJECT_ID")
+	if projectID == "" {
+		return SenderConfig{}, errors.New("FCM: FCM_PROJECT_ID env var is required")
+	}
+	return SenderConfig{
+		CredentialsFile: creds,
+		ProjectID:       projectID,
+		HTTPTimeout:     15 * time.Second,
+	}, nil
 }
 
 type FCMSender struct {
-	cfg    SenderConfig
-	client *http.Client
-	log    *slog.Logger
+	projectID string
+	client    *http.Client
+	log       *slog.Logger
 }
 
-func NewFCMSender(cfg SenderConfig, log *slog.Logger) *FCMSender {
-	return &FCMSender{
-		cfg: cfg,
-		client: &http.Client{
-			Timeout: cfg.HTTPTimeout,
-		},
-		log: log,
+func NewFCMSender(cfg SenderConfig, log *slog.Logger) (*FCMSender, error) {
+	credBytes, err := os.ReadFile(cfg.CredentialsFile)
+	if err != nil {
+		return nil, fmt.Errorf("FCM: read credentials file %q: %w", cfg.CredentialsFile, err)
 	}
+
+	jwtCfg, err := google.JWTConfigFromJSON(credBytes, "https://www.googleapis.com/auth/firebase.messaging")
+	if err != nil {
+		return nil, fmt.Errorf("FCM: parse service account JSON from %q: %w", cfg.CredentialsFile, err)
+	}
+
+	httpClient := jwtCfg.Client(context.Background())
+	httpClient.Timeout = cfg.HTTPTimeout
+
+	return &FCMSender{
+		projectID: cfg.ProjectID,
+		client:    httpClient,
+		log:       log,
+	}, nil
 }
 
-type fcmRequest struct {
-	To               string            `json:"to"`
-	Priority         string            `json:"priority,omitempty"`
-	ContentAvailable bool              `json:"content_available,omitempty"`
-	Notification     *fcmNotification  `json:"notification,omitempty"`
-	Data             map[string]string `json:"data,omitempty"`
+type fcmV1Message struct {
+	Message fcmV1MessageBody `json:"message"`
+}
+
+type fcmV1MessageBody struct {
+	Token        string            `json:"token"`
+	Notification *fcmNotification  `json:"notification,omitempty"`
+	Data         map[string]string `json:"data,omitempty"`
+	Android      *fcmAndroidConfig `json:"android,omitempty"`
+	APNS         *fcmAPNSConfig    `json:"apns,omitempty"`
 }
 
 type fcmNotification struct {
@@ -54,51 +81,73 @@ type fcmNotification struct {
 	Body  string `json:"body"`
 }
 
-// SendNotification sends a high-priority FCM notification message with the
-// given title and body to the specified device token.
+type fcmAndroidConfig struct {
+	Priority string `json:"priority"`
+}
+
+type fcmAPNSConfig struct {
+	Headers fcmAPNSHeaders `json:"headers"`
+}
+
+type fcmAPNSHeaders struct {
+	APNSPriority string `json:"apns-priority"`
+}
+
+func priorityConfig() (*fcmAndroidConfig, *fcmAPNSConfig) {
+	return &fcmAndroidConfig{Priority: "high"},
+		&fcmAPNSConfig{Headers: fcmAPNSHeaders{APNSPriority: "10"}}
+}
+
+func (s *FCMSender) url() string {
+	return fmt.Sprintf("https://fcm.googleapis.com/v1/projects/%s/messages:send", s.projectID)
+}
+
 func (s *FCMSender) SendNotification(ctx context.Context, deviceToken, title, body string) error {
-	req := fcmRequest{
-		To:       deviceToken,
-		Priority: "high",
-		Notification: &fcmNotification{
-			Title: title,
-			Body:  body,
+	android, apns := priorityConfig()
+	msg := fcmV1Message{
+		Message: fcmV1MessageBody{
+			Token: deviceToken,
+			Notification: &fcmNotification{
+				Title: title,
+				Body:  body,
+			},
+			Android: android,
+			APNS:    apns,
 		},
 	}
 
-	return s.send(ctx, req)
+	return s.send(ctx, msg)
 }
 
-// SendData sends a high-priority data-only FCM message with the provided
-// key-value pairs to the specified device token.
-// The data map is safely defaulted to an empty map when nil or empty.
 func (s *FCMSender) SendData(ctx context.Context, deviceToken string, data map[string]string) error {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		data = make(map[string]string)
 	}
 
-	req := fcmRequest{
-		To:               deviceToken,
-		Priority:         "high",
-		ContentAvailable: true,
-		Data:             data,
+	android, apns := priorityConfig()
+	msg := fcmV1Message{
+		Message: fcmV1MessageBody{
+			Token:   deviceToken,
+			Data:    data,
+			Android: android,
+			APNS:    apns,
+		},
 	}
 
-	return s.send(ctx, req)
+	return s.send(ctx, msg)
 }
 
-func (s *FCMSender) send(ctx context.Context, req fcmRequest) error {
-	body, err := json.Marshal(req)
+func (s *FCMSender) send(ctx context.Context, msg fcmV1Message) error {
+	body, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("fcm marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fcmLegacyEndpoint, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url(), bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("fcm create request: %w", err)
 	}
 
-	httpReq.Header.Set("Authorization", "key="+s.cfg.ServerKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(httpReq)
@@ -112,11 +161,11 @@ func (s *FCMSender) send(ctx context.Context, req fcmRequest) error {
 		return nil
 	}
 
-	var errBody bytes.Buffer
-	errBody.ReadFrom(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+
 	s.log.Error("fcm push failed",
 		"status", resp.StatusCode,
-		"response", errBody.String(),
+		"response", string(respBody),
 	)
-	return fmt.Errorf("fcm push returned non-2xx: %d", resp.StatusCode)
+	return fmt.Errorf("fcm push returned status %d: %s", resp.StatusCode, string(respBody))
 }

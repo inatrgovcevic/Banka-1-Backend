@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"Banka1Back/notification-service-go/internal/config"
@@ -120,14 +119,17 @@ func NewNotificationServiceWithSender(
 
 // HandleIncoming processes a successfully routed AMQP message.
 //
-// Flow:
+// Flow for push-only notification types (PRICE_ALERT_TRIGGERED,
+// ORDER_RECURRING_SKIPPED):
+//  1. Render subject + body templates (no email required).
+//  2. Send an FCM push notification.
+//
+// Flow for all other notification types:
 //  1. Render subject + body from template registry.
 //  2. Persist a PENDING delivery record.
 //  3. Launch AttemptDelivery asynchronously.
 //
-// For push-only notification types (PRICE_ALERT_TRIGGERED, ORDER_RECURRING_SKIPPED):
-// if the recipient email is missing, the email delivery channel is gracefully
-// skipped and an FCM push notification is sent instead.
+// Push-only types skip the email delivery channel entirely.
 //
 // A non-nil error causes the Consumer to NACK the message.
 func (s *NotificationService) HandleIncoming(
@@ -135,6 +137,10 @@ func (s *NotificationService) HandleIncoming(
 	req *dto.NotificationRequest,
 	notificationType model.NotificationType,
 ) error {
+	if model.IsPushOnlyNotificationType(notificationType) {
+		return s.handlePushOnlyNotification(ctx, req, notificationType)
+	}
+
 	resolved, err := s.renderer.Resolve(
 		notificationType,
 		req.UserEmail,
@@ -142,18 +148,19 @@ func (s *NotificationService) HandleIncoming(
 		req.TemplateVariables,
 	)
 	if err != nil {
-		if isEmailMissingError(err) && model.IsPushOnlyNotificationType(notificationType) {
-			s.log.Info("email missing for push-only notification — skipping email, proceeding to FCM push",
+		if errors.Is(err, template.ErrEmailRequired) {
+			s.log.Error("email is required for non-push notification type — message will be NACKed",
 				"notification_type", notificationType,
-				"client_id", req.ClientID,
+				"recipient", req.UserEmail,
+				"error", err,
 			)
-			return s.handlePushOnlyNotification(ctx, req, notificationType)
+		} else {
+			s.log.Error("template resolution failed — message will be NACKed",
+				"notification_type", notificationType,
+				"recipient", req.UserEmail,
+				"error", err,
+			)
 		}
-		s.log.Error("template resolution failed — message will be NACKed",
-			"notification_type", notificationType,
-			"recipient", req.UserEmail,
-			"error", err,
-		)
 		return fmt.Errorf("resolve template [%s]: %w", notificationType, err)
 	}
 
@@ -178,17 +185,7 @@ func (s *NotificationService) HandleIncoming(
 	deliveryID := delivery.DeliveryID
 	s.exec(func() { s.AttemptDelivery(deliveryID) })
 
-	if model.IsPushOnlyNotificationType(notificationType) {
-		s.exec(func() {
-			s.tryPushDelivery(ctx, req, notificationType, resolved.Subject, resolved.Body)
-		})
-	}
-
 	return nil
-}
-
-func isEmailMissingError(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "ERR_NOTIFICATION_003")
 }
 
 func (s *NotificationService) handlePushOnlyNotification(
@@ -254,7 +251,7 @@ func (s *NotificationService) tryPushDelivery(
 
 	switch notificationType {
 	case model.NotificationTypePriceAlertTriggered:
-		s.sendPriceAlertPush(ctx, req, token.Token, subject)
+		s.sendPriceAlertPush(ctx, req, token.Token, subject, body)
 	case model.NotificationTypeOrderRecurringSkipped:
 		if err := s.pushSender.SendNotification(ctx, token.Token, subject, body); err != nil {
 			s.log.Warn("push notification send failed",
@@ -280,39 +277,33 @@ func (s *NotificationService) sendPriceAlertPush(
 	req *dto.NotificationRequest,
 	deviceToken string,
 	subject string,
+	body string,
 ) {
 	vars := req.TemplateVariables
-	if vars == nil || len(vars) == 0 {
+	if len(vars) == 0 {
 		vars = make(map[string]string)
 	}
-
-	ticker := vars["ticker"]
-	triggeredPrice := vars["price"]
-	threshold := vars["threshold"]
-	condition := vars["condition"]
-
-	bodyMsg := fmt.Sprintf("Cena za %s je dostigla %s", ticker, triggeredPrice)
 
 	data := map[string]string{
 		"type":           "PRICE_ALERT_TRIGGERED",
 		"title":          subject,
-		"body":           bodyMsg,
-		"ticker":         ticker,
-		"threshold":      threshold,
-		"triggeredPrice": triggeredPrice,
-		"condition":      condition,
+		"body":           body,
+		"ticker":         vars["ticker"],
+		"threshold":      vars["threshold"],
+		"triggeredPrice": vars["price"],
+		"condition":      vars["condition"],
 	}
 
 	if err := s.pushSender.SendData(ctx, deviceToken, data); err != nil {
 		s.log.Warn("price alert push send failed",
 			"client_id", req.ClientID,
-			"ticker", ticker,
+			"ticker", vars["ticker"],
 			"error", err,
 		)
 	} else {
 		s.log.Info("price alert push sent successfully",
 			"client_id", req.ClientID,
-			"ticker", ticker,
+			"ticker", vars["ticker"],
 		)
 	}
 }
