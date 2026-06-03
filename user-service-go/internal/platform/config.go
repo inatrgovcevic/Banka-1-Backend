@@ -58,8 +58,10 @@ type RabbitConfig struct {
 }
 
 type EmailConfig struct {
-	ResetPasswordURL string
-	ActivateURL      string
+	EmployeeResetPasswordURL string
+	EmployeeActivateURL      string
+	ClientResetPasswordURL   string
+	ClientActivateURL        string
 }
 
 type JMBGConfig struct {
@@ -88,8 +90,8 @@ func LoadConfig() Config {
 		User: UserConfig{
 			ConfirmationTokenDuration: time.Duration(envInt("TOKEN_CONFIRMATION_EXPIRATION_MINUTES", 15)) * time.Minute,
 			RefreshTokenDuration:      time.Duration(envInt("TOKEN_REFRESH_EXPIRATION_DAYS", 7)) * 24 * time.Hour,
-			EmployeeLockoutAttempts:   envInt("ACCOUNT_LOCKOUT_MAX_ATTEMPTS", 5),
-			EmployeeLockoutDuration:   time.Duration(envInt("ACCOUNT_LOCKOUT_DURATION_MINUTES", 15)) * time.Minute,
+			EmployeeLockoutAttempts:   envInt("ACCOUNT_LOCKOUT_MAX_ATTEMPTS", 4),
+			EmployeeLockoutDuration:   time.Duration(envInt("ACCOUNT_LOCKOUT_DURATION_MINUTES", 10)) * time.Minute,
 		},
 		CORS: CORSConfig{
 			AllowedOrigins: splitEnv("BANKA_SECURITY_CORS_ALLOWED_ORIGINS", "http://localhost:4200,http://localhost:3000"),
@@ -103,8 +105,10 @@ func LoadConfig() Config {
 			Exchange: env("NOTIFICATION_EXCHANGE", env("RABBITMQ_EXCHANGE", "employee.events")),
 		},
 		Email: EmailConfig{
-			ResetPasswordURL: env("USER_RESET_PASSWORD_URL", "http://localhost:3000/reset-password?token="),
-			ActivateURL:      env("USER_ACTIVATE_ACCOUNT_URL", "http://localhost:3000/activate?token="),
+			EmployeeResetPasswordURL: env("USER_RESET_PASSWORD_URL", "http://localhost:4200/auth/reset-password?token="),
+			EmployeeActivateURL:      env("USER_ACTIVATE_ACCOUNT_URL", "http://localhost:4200/auth/activate-account?token="),
+			ClientResetPasswordURL:   env("CLIENT_RESET_PASSWORD_URL", "http://localhost:4200/auth/reset-password?token="),
+			ClientActivateURL:        env("CLIENT_ACTIVATE_ACCOUNT_URL", "http://localhost:4200/auth/activate-client?token="),
 		},
 		JMBG: JMBGConfig{
 			AESKeyBase64: env("BANKA_SECURITY_JMBG_AES_KEY", "VGhpc0lzQURldk9ubHkzMkJ5dGVBRVNLZXktMTIzNDU="),

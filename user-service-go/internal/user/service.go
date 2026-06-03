@@ -41,9 +41,6 @@ func (s *Service) EmployeeLogin(ctx context.Context, req LoginRequest) (TokenRes
 	}
 	if employee.PasswordHash == nil || !platform.VerifyPassword(req.Password, *employee.PasswordHash) {
 		_ = s.repo.RegisterFailedEmployeeLogin(ctx, employee, s.cfg.EmployeeLockoutAttempts, s.cfg.EmployeeLockoutDuration)
-		if employee.FailedLoginAttempts+1 >= s.cfg.EmployeeLockoutAttempts {
-			return TokenResponse{}, ErrLockedAccount
-		}
 		return TokenResponse{}, ErrInvalidLogin
 	}
 	permissions := s.repo.EmployeePermissions(ctx, employee.ID, employee.Role)
@@ -148,7 +145,7 @@ func (s *Service) EmployeeForgotPassword(ctx context.Context, email string) erro
 	if err := s.repo.UpsertEmployeeConfirmation(ctx, employee.ID, platform.SHA256Hex(token), time.Now().Add(s.cfg.ConfirmationTokenDuration)); err != nil {
 		return err
 	}
-	return s.publishEmail(ctx, "employee.password_reset", "EMPLOYEE_PASSWORD_RESET", employee.Ime, employee.Email, s.email.ResetPasswordURL+token)
+	return s.publishEmail(ctx, "employee.password_reset", "EMPLOYEE_PASSWORD_RESET", employee.Ime, employee.Email, s.email.EmployeeResetPasswordURL+token)
 }
 
 func (s *Service) EmployeeResendActivation(ctx context.Context, email string) error {
@@ -166,7 +163,7 @@ func (s *Service) EmployeeResendActivation(ctx context.Context, email string) er
 	if err := s.repo.UpsertEmployeeConfirmation(ctx, employee.ID, platform.SHA256Hex(token), time.Now().Add(s.cfg.ConfirmationTokenDuration)); err != nil {
 		return err
 	}
-	return s.publishEmail(ctx, "employee.created", "EMPLOYEE_CREATED", employee.Ime, employee.Email, s.email.ActivateURL+token)
+	return s.publishEmail(ctx, "employee.created", "EMPLOYEE_CREATED", employee.Ime, employee.Email, s.email.EmployeeActivateURL+token)
 }
 
 func (s *Service) ClientForgotPassword(ctx context.Context, email string) error {
@@ -184,7 +181,7 @@ func (s *Service) ClientForgotPassword(ctx context.Context, email string) error 
 	if err := s.repo.UpsertClientConfirmation(ctx, client.ID, platform.SHA256Hex(token), time.Now().Add(s.cfg.ConfirmationTokenDuration)); err != nil {
 		return err
 	}
-	return s.publishEmail(ctx, "client.password_reset", "CLIENT_PASSWORD_RESET", client.Ime, client.Email, s.email.ResetPasswordURL+token)
+	return s.publishEmail(ctx, "client.password_reset", "CLIENT_PASSWORD_RESET", client.Ime, client.Email, s.email.ClientResetPasswordURL+token)
 }
 
 func (s *Service) ClientResendActivation(ctx context.Context, email string) error {
@@ -202,7 +199,7 @@ func (s *Service) ClientResendActivation(ctx context.Context, email string) erro
 	if err := s.repo.UpsertClientConfirmation(ctx, client.ID, platform.SHA256Hex(token), time.Now().Add(s.cfg.ConfirmationTokenDuration)); err != nil {
 		return err
 	}
-	return s.publishEmail(ctx, "client.created", "CLIENT_CREATED", client.Ime, client.Email, s.email.ActivateURL+token)
+	return s.publishEmail(ctx, "client.created", "CLIENT_CREATED", client.Ime, client.Email, s.email.ClientActivateURL+token)
 }
 
 func (s *Service) SearchEmployees(ctx context.Context, query SearchQuery) (PageResponse[EmployeeResponse], error) {
@@ -241,7 +238,7 @@ func (s *Service) CreateEmployee(ctx context.Context, req EmployeeCreateRequest)
 	token, err := platform.RandomURLToken()
 	if err == nil {
 		if err := s.repo.UpsertEmployeeConfirmation(ctx, employee.ID, platform.SHA256Hex(token), time.Now().Add(s.cfg.ConfirmationTokenDuration)); err == nil {
-			_ = s.publishEmail(ctx, "employee.created", "EMPLOYEE_CREATED", employee.Ime, employee.Email, s.email.ActivateURL+token)
+			_ = s.publishEmail(ctx, "employee.created", "EMPLOYEE_CREATED", employee.Ime, employee.Email, s.email.EmployeeActivateURL+token)
 		}
 	}
 	return employeeDTO(employee), nil
@@ -353,7 +350,7 @@ func (s *Service) CreateClient(ctx context.Context, req ClientCreateRequest) (Cl
 	token, err := platform.RandomURLToken()
 	if err == nil {
 		if err := s.repo.UpsertClientConfirmation(ctx, client.ID, platform.SHA256Hex(token), time.Now().Add(s.cfg.ConfirmationTokenDuration)); err == nil {
-			_ = s.publishEmail(ctx, "client.created", "CLIENT_CREATED", client.Ime, client.Email, s.email.ActivateURL+token)
+			_ = s.publishEmail(ctx, "client.created", "CLIENT_CREATED", client.Ime, client.Email, s.email.ClientActivateURL+token)
 		}
 	}
 	return clientDTO(client), nil

@@ -414,8 +414,12 @@ services:
       NOTIFICATION_QUEUE: ${NOTIFICATION_QUEUE:-notification-service-queue}
       NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
       NOTIFICATION_ROUTING_KEY: ${NOTIFICATION_ROUTING_KEY:-employee.#}
-      USER_RESET_PASSWORD_URL: ${USER_RESET_PASSWORD_URL:-http://localhost:3000/reset-password?token=}
-      USER_ACTIVATE_ACCOUNT_URL: ${USER_ACTIVATE_ACCOUNT_URL:-http://localhost:3000/activate?token=}
+      USER_RESET_PASSWORD_URL: ${USER_RESET_PASSWORD_URL:-http://localhost:4200/auth/reset-password?token=}
+      USER_ACTIVATE_ACCOUNT_URL: ${USER_ACTIVATE_ACCOUNT_URL:-http://localhost:4200/auth/activate-account?token=}
+      CLIENT_RESET_PASSWORD_URL: ${CLIENT_RESET_PASSWORD_URL:-http://localhost:4200/auth/reset-password?token=}
+      CLIENT_ACTIVATE_ACCOUNT_URL: ${CLIENT_ACTIVATE_ACCOUNT_URL:-http://localhost:4200/auth/activate-client?token=}
+      ACCOUNT_LOCKOUT_MAX_ATTEMPTS: ${ACCOUNT_LOCKOUT_MAX_ATTEMPTS:-4}
+      ACCOUNT_LOCKOUT_DURATION_MINUTES: ${ACCOUNT_LOCKOUT_DURATION_MINUTES:-10}
       MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
