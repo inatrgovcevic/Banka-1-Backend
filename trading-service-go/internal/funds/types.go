@@ -12,6 +12,8 @@
 package funds
 
 import (
+	"bytes"
+	"strconv"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -188,7 +190,7 @@ type FundDividendPayout struct {
 // InvestmentFundService.FundSubscribeRequestedEvent. Published on
 // saga.events / fund.subscribe.requested AFTER the local transaction commits.
 type FundSubscribeRequestedEvent struct {
-	TransactionID     int64           `json:"transactionId"`
+	TransactionID     string          `json:"transactionId"`
 	ClientID          int64           `json:"clientId"`
 	FundID            int64           `json:"fundId"`
 	Amount            decimal.Decimal `json:"amount"`
@@ -203,7 +205,7 @@ type FundSubscribeRequestedEvent struct {
 // first. The `liquidEnough` flag echoes the routing decision so saga-
 // orchestrator-service does not have to recompute it.
 type FundRedeemRequestedEvent struct {
-	TransactionID     int64           `json:"transactionId"`
+	TransactionID     string          `json:"transactionId"`
 	ClientID          int64           `json:"clientId"`
 	FundID            int64           `json:"fundId"`
 	Amount            decimal.Decimal `json:"amount"`
@@ -217,9 +219,41 @@ type FundRedeemRequestedEvent struct {
 // port treats every value as optional. Numeric ids may arrive as int64 or
 // float64 depending on the publisher; the parser handles both.
 type SagaResultEvent struct {
-	TransactionID *int64           `json:"transactionId,omitempty"`
+	TransactionID *FlexibleInt64   `json:"transactionId,omitempty"`
 	ClientID      *int64           `json:"clientId,omitempty"`
 	FundID        *int64           `json:"fundId,omitempty"`
 	Amount        *decimal.Decimal `json:"amount,omitempty"`
 	FailureReason *string          `json:"failureReason,omitempty"`
+}
+
+// FlexibleInt64 accepts ids encoded either as JSON numbers or strings.
+type FlexibleInt64 int64
+
+func (v *FlexibleInt64) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if bytes.Equal(data, []byte("null")) {
+		return nil
+	}
+	if len(data) >= 2 && data[0] == '"' && data[len(data)-1] == '"' {
+		unquoted, err := strconv.Unquote(string(data))
+		if err != nil {
+			return err
+		}
+		parsed, err := strconv.ParseInt(unquoted, 10, 64)
+		if err != nil {
+			return err
+		}
+		*v = FlexibleInt64(parsed)
+		return nil
+	}
+	parsed, err := strconv.ParseInt(string(data), 10, 64)
+	if err != nil {
+		return err
+	}
+	*v = FlexibleInt64(parsed)
+	return nil
+}
+
+func (v FlexibleInt64) Int64() int64 {
+	return int64(v)
 }

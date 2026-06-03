@@ -41,6 +41,23 @@ func (r *Repository) EmployeeByID(ctx context.Context, id int64) (Employee, erro
 	return scanEmployee(rows)
 }
 
+func (r *Repository) FirstActiveEmployeeIDByRoleExcluding(ctx context.Context, role string, excludedID int64) (int64, error) {
+	var id int64
+	err := r.db.QueryRow(ctx, `
+		SELECT id
+		  FROM employees
+		 WHERE deleted = false
+		   AND aktivan = true
+		   AND role = $1
+		   AND id <> $2
+		 ORDER BY id
+		 LIMIT 1`, role, excludedID).Scan(&id)
+	if err != nil {
+		return 0, mapPgError(err)
+	}
+	return id, nil
+}
+
 func (r *Repository) ClientByEmail(ctx context.Context, email string) (Client, error) {
 	rows := r.db.QueryRow(ctx, `
 		SELECT id, ime, prezime, datum_rodjenja, pol, email, broj_telefona, adresa,
@@ -155,6 +172,34 @@ func (r *Repository) ClientPermissions(ctx context.Context, id int64, role strin
 		return clientPermissions(role)
 	}
 	return out
+}
+
+func (r *Repository) OTCTradingClientIDs(ctx context.Context) ([]int64, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT DISTINCT c.id
+		  FROM clients c
+		  LEFT JOIN client_permissions cp ON cp.client_id = c.id
+		 WHERE c.deleted = false
+		   AND c.aktivan = true
+		   AND (
+		        c.role = 'CLIENT_TRADING'
+		        OR cp.permission IN ('CLIENT_OTC_TRADE', 'CLIENT_SECURITIES_TRADE')
+		   )
+		 ORDER BY c.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (r *Repository) ResetEmployeeLoginFailures(ctx context.Context, id int64) error {

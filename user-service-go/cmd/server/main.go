@@ -50,7 +50,7 @@ func main() {
 	defer publisher.Close()
 
 	repo := user.NewRepository(db, jmbgCrypto)
-	service := user.NewService(repo, auth, publisher, cfg.User, cfg.Email)
+	service := user.NewService(repo, auth, publisher, cfg.User, cfg.Services, cfg.Email)
 	handlers := user.NewHandlers(service)
 
 	router := platform.NewRouter(platform.RouterDeps{
