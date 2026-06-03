@@ -1,3 +1,6 @@
+# Review files
+pr*-review.md
+
 # Gradle
 /.gradle/
 /gradle/

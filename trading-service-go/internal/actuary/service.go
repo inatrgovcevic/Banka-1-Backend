@@ -93,7 +93,7 @@ func (s *Service) GetAgents(ctx context.Context, email, ime, prezime, pozicija *
 
 // SetLimit sets an agent's daily limit. limit is already bean-validated (>0,
 // non-null) by the handler. Mirrors ActuaryServiceImpl.setLimit.
-func (s *Service) SetLimit(ctx context.Context, employeeID int64, limit decimal.Decimal) error {
+func (s *Service) SetLimit(ctx context.Context, actorID int64, actorRole string, employeeID int64, limit decimal.Decimal) error {
 	emp, err := s.fetchEmployeeOrNotFound(ctx, employeeID)
 	if err != nil {
 		return err
@@ -111,11 +111,19 @@ func (s *Service) SetLimit(ctx context.Context, employeeID int64, limit decimal.
 	if limit.LessThan(info.UsedLimit) {
 		return api.NewOtcError(404, "Limit cannot be lower than the current used limit of "+info.UsedLimit.String()+".")
 	}
-	return s.repo.UpdateLimit(ctx, employeeID, limit)
+	oldValue := ""
+	if info.Limit != nil {
+		oldValue = info.Limit.String()
+	}
+	if err := s.repo.UpdateLimit(ctx, employeeID, limit); err != nil {
+		return err
+	}
+	_ = s.repo.InsertAuditLog(ctx, actorID, actorRole, "SET_LIMIT", "actuary_info", fmt.Sprintf("%d", employeeID), oldValue, limit.String())
+	return nil
 }
 
 // ResetLimit zeroes an agent's used/reserved limit. Mirrors resetLimit.
-func (s *Service) ResetLimit(ctx context.Context, employeeID int64) error {
+func (s *Service) ResetLimit(ctx context.Context, actorID int64, actorRole string, employeeID int64) error {
 	emp, err := s.fetchEmployeeOrNotFound(ctx, employeeID)
 	if err != nil {
 		return err
@@ -126,7 +134,16 @@ func (s *Service) ResetLimit(ctx context.Context, employeeID int64) error {
 	if !roleMatches(emp.Role, "AGENT") {
 		return api.NewOtcError(404, "Limit can only be reset for employees with the AGENT role.")
 	}
-	return s.repo.ResetLimit(ctx, employeeID)
+	info, _ := s.repo.FindByEmployeeID(ctx, employeeID)
+	oldUsed := "0"
+	if info != nil {
+		oldUsed = info.UsedLimit.String()
+	}
+	if err := s.repo.ResetLimit(ctx, employeeID); err != nil {
+		return err
+	}
+	_ = s.repo.InsertAuditLog(ctx, actorID, actorRole, "RESET_LIMIT", "actuary_info", fmt.Sprintf("%d", employeeID), oldUsed, "0")
+	return nil
 }
 
 // SetNeedApproval toggles an agent's need-approval flag. value is bean-validated

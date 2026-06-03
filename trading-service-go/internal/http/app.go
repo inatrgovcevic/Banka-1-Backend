@@ -45,6 +45,7 @@ type App struct {
 	Otc            *otc.Service
 	OtcReservation *otc.ReservationService
 	Interbank      *interbank.Service
+	Employees      *clients.EmployeeClient
 
 	cron      *cron.Cron
 	consumers []*rabbitmq.Consumer
@@ -139,6 +140,7 @@ func NewApp(cfg platform.Config, db *pgxpool.Pool, jwtService *gpauth.Service, l
 		Otc:            otcSvc,
 		OtcReservation: otcReservationSvc,
 		Interbank:      interbankSvc,
+		Employees:      cl.Employee,
 	}
 
 	// Schedulers are OFF by default during coexistence (Java still runs them on the

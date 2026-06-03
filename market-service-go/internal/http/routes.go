@@ -41,6 +41,6 @@ func registerRoutes(handle func(string, string, http.Handler), cfg platform.Conf
 	add(http.MethodGet, "/internal/calculate/no-commission", http.HandlerFunc(handlers.CalculateNoCommission))
 	add(http.MethodPost, "/rates/fetch", jwtService.Middleware(auth.RequireRoles("ADMIN", "SERVICE")(http.HandlerFunc(handlers.FetchRates))))
 	add(http.MethodPost, "/admin/stock-exchanges/import", jwtService.Middleware(auth.RequireRoles("SUPERVISOR", "ADMIN", "SERVICE")(http.HandlerFunc(handlers.ImportStockExchanges))))
-	add(http.MethodPost, "/admin/stocks/refresh-all", jwtService.Middleware(auth.RequireRoles("ADMIN", "SUPERVISOR")(http.HandlerFunc(handlers.RefreshAllStocks))))
+	add(http.MethodPost, "/admin/stocks/refresh-all", jwtService.Middleware(auth.RequireRoles("ADMIN", "SUPERVISOR", "AGENT", "BASIC", "CLIENT_TRADING", "CLIENT_BASIC")(http.HandlerFunc(handlers.RefreshAllStocks))))
 	add(http.MethodPost, "/admin/stocks/", jwtService.Middleware(auth.RequireRoles("ADMIN", "SUPERVISOR")(http.HandlerFunc(handlers.StockAdminSubroutes))))
 }
