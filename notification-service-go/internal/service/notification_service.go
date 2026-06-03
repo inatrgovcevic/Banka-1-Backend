@@ -120,7 +120,8 @@ func NewNotificationServiceWithSender(
 // HandleIncoming processes a successfully routed AMQP message.
 //
 // Flow for push-only notification types (PRICE_ALERT_TRIGGERED,
-// ORDER_RECURRING_SKIPPED):
+// ORDER_RECURRING_SKIPPED, and the order lifecycle events ORDER_CREATED /
+// ORDER_DONE / ORDER_PARTIAL_FILL / ORDER_AUTO_CANCELLED):
 //  1. Render subject + body templates (no email required).
 //  2. Send an FCM push notification.
 //
@@ -252,7 +253,11 @@ func (s *NotificationService) tryPushDelivery(
 	switch notificationType {
 	case model.NotificationTypePriceAlertTriggered:
 		s.sendPriceAlertPush(ctx, req, token.Token, subject, body)
-	case model.NotificationTypeOrderRecurringSkipped:
+	case model.NotificationTypeOrderRecurringSkipped,
+		model.NotificationTypeOrderCreated,
+		model.NotificationTypeOrderDone,
+		model.NotificationTypeOrderPartialFill,
+		model.NotificationTypeOrderAutoCancelled:
 		if err := s.pushSender.SendNotification(ctx, token.Token, subject, body); err != nil {
 			s.log.Warn("push notification send failed",
 				"notification_type", notificationType,

@@ -78,8 +78,15 @@ const (
 	NotificationTypeTransactionCompleted NotificationType = "TRANSACTION_COMPLETED"
 	NotificationTypeTransactionDenied    NotificationType = "TRANSACTION_DENIED"
 
-	NotificationTypePriceAlertTriggered  NotificationType = "PRICE_ALERT_TRIGGERED"
+	NotificationTypePriceAlertTriggered   NotificationType = "PRICE_ALERT_TRIGGERED"
 	NotificationTypeOrderRecurringSkipped NotificationType = "ORDER_RECURRING_SKIPPED"
+
+	// Order lifecycle push events (Celina 3 — order-service OrderEventNotifier:
+	// order.created / order.done / order.partial_fill / order.auto_cancelled).
+	NotificationTypeOrderCreated       NotificationType = "ORDER_CREATED"
+	NotificationTypeOrderDone          NotificationType = "ORDER_DONE"
+	NotificationTypeOrderPartialFill   NotificationType = "ORDER_PARTIAL_FILL"
+	NotificationTypeOrderAutoCancelled NotificationType = "ORDER_AUTO_CANCELLED"
 )
 
 // ErrDeliveryNotEligible is returned by MarkProcessing when the target delivery
