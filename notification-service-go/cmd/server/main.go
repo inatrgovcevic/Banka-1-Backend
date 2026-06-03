@@ -11,6 +11,7 @@ import (
 
 	"Banka1Back/notification-service-go/internal/config"
 	"Banka1Back/notification-service-go/internal/messaging"
+	"Banka1Back/notification-service-go/internal/push"
 	"Banka1Back/notification-service-go/internal/service"
 	"Banka1Back/notification-service-go/internal/smtp"
 	"Banka1Back/notification-service-go/internal/store"
@@ -52,6 +53,24 @@ func main() {
 	schedulerInterval := time.Duration(cfg.Retry.SchedulerIntervalMs) * time.Millisecond
 	scheduler := service.NewTickerRetryScheduler(deliveryStore, schedulerInterval, slog.Default())
 
+	var svcOpts []service.Option
+
+	fcmConfig, fcmErr := push.SenderConfigFromEnv()
+	if fcmErr != nil {
+		log.Println("FCM not configured — push notifications disabled:", fcmErr)
+	} else {
+		fcmSender, err := push.NewFCMSender(fcmConfig, slog.Default())
+		if err != nil {
+			log.Println("FCM initialization failed — push notifications disabled:", err)
+		} else {
+			svcOpts = append(svcOpts, service.WithPush(
+				store.NewFcmTokenStore(db),
+				fcmSender,
+			))
+			log.Println("FCM push notifications enabled")
+		}
+	}
+
 	notificationService := service.NewNotificationService(
 		deliveryStore,
 		renderer,
@@ -59,6 +78,7 @@ func main() {
 		scheduler,
 		cfg.Retry,
 		slog.Default(),
+		svcOpts...,
 	)
 
 	scheduler.SetService(notificationService)

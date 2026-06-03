@@ -115,12 +115,13 @@ func Load() (*Config, error) {
 		getenv("NOTIFICATION_CLIENT_ROUTING_KEY", "client.#"),
 		getenv("NOTIFICATION_CARD_ROUTING_KEY", "card.#"),
 		getenv("NOTIFICATION_CREDIT_ROUTING_KEY", "credit.#"),
-		getenv("NOTIFICATION_ORDER_ROUTING_KEY", "order.#"),
 		getenv("NOTIFICATION_TAX_ROUTING_KEY", "tax.#"),
 		getenv("NOTIFICATION_OTC_ROUTING_KEY", "otc.#"),
 		getenv("NOTIFICATION_VERIFICATION_ROUTING_KEY", "verification.#"),
 		getenv("NOTIFICATION_ACCOUNT_ROUTING_KEY", "account.#"),
 		getenv("NOTIFICATION_TRANSACTION_ROUTING_KEY", "transaction.#"),
+		getenv("NOTIFICATION_PRICE_ROUTING_KEY", "price.#"),
+		getenv("NOTIFICATION_ORDER_ROUTING_KEY", "order.#"),
 	}
 
 	return &Config{
