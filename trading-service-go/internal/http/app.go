@@ -9,7 +9,9 @@ import (
 
 	"banka1/trading-service-go/internal/actuary"
 	"banka1/trading-service-go/internal/analytics"
+	"banka1/trading-service-go/internal/audit"
 	"banka1/trading-service-go/internal/clients"
+	"banka1/trading-service-go/internal/dividend"
 	"banka1/trading-service-go/internal/funds"
 	"banka1/trading-service-go/internal/interbank"
 	"banka1/trading-service-go/internal/order"
@@ -45,7 +47,15 @@ type App struct {
 	Otc            *otc.Service
 	OtcReservation *otc.ReservationService
 	Interbank      *interbank.Service
-	Employees      *clients.EmployeeClient
+	// DividendPayout is the WP-14 quarterly per-shareholder dividend payout
+	// (internal/dividend) — distinct from Dividend (*funds.DividendService),
+	// the unrelated fund-dividend feature.
+	DividendPayout *dividend.Service
+	// Audit is the WP-2 centralized audit-log sink + query backend.
+	Audit *audit.Service
+	// Employees exposes the employee client for handlers that resolve
+	// actor/target display names (the legacy /audit-log view).
+	Employees *clients.EmployeeClient
 
 	cron      *cron.Cron
 	consumers []*rabbitmq.Consumer
@@ -94,11 +104,16 @@ func NewApp(cfg platform.Config, db *pgxpool.Pool, jwtService *gpauth.Service, l
 	dividendSvc := funds.NewDividendService(fundsRepo, holdingSvc, snapshotSvc,
 		cl.Market, cl.Account, fundsSvc, logger)
 
+	// audit (WP-2): the centralized audit sink — order decisions record into it
+	// directly (in-process); the audit.# consumer (below, gated) persists other
+	// services' events.
+	auditSvc := audit.NewService(audit.NewRepository(db), logger)
+
 	// order: the order service depends on a FundCallback that lives in the
 	// funds package. In-process binding (matches our resolved P5 decision
 	// over HTTP self-call) — see funds/callback.go.
 	fundCallback := funds.NewOrderCallback(fundsSvc, holdingSvc)
-	orderSvc := order.NewService(orderRepo, portfolioRepo, actuaryRepo, cl, notifier, fundCallback, logger)
+	orderSvc := order.NewService(orderRepo, portfolioRepo, actuaryRepo, cl, notifier, fundCallback, auditSvc, logger)
 	orderSvc.Start()
 
 	// tax service feeds the portfolio summary (yearlyTaxPaid/monthlyTaxDue), so it
@@ -118,6 +133,12 @@ func NewApp(cfg platform.Config, db *pgxpool.Pool, jwtService *gpauth.Service, l
 	otcSvc := otc.NewService(otcRepo, portfolioRepo, cl.Market, cl.Customer, cl.Employee, otcSagaPublisher, otcNotifier, logger)
 	otcReservationSvc := otc.NewReservationService(db, portfolioRepo, cl.Market, logger)
 
+	// Dividend payouts (WP-14 Celina 3.7): quarterly per-shareholder payout over
+	// the dividend_payouts table. Reuses the order repo (bank-held BUY split),
+	// portfolio repo (holders) and the market/account clients (dividend data,
+	// FX, credits). Shares the capital-gains tax rate with the tax domain.
+	dividendPayoutSvc := dividend.NewService(dividend.NewRepository(db), orderRepo, portfolioRepo, cl, taxRate, logger)
+
 	// Interbank (P7): the SERVICE-gated /internal/interbank/* 2PC primitives
 	// interbank-service calls. Synchronous over the shared `portfolio` table +
 	// interbank_{stock,option}_reservations — NO publisher/consumer/scheduler (the
@@ -128,7 +149,7 @@ func NewApp(cfg platform.Config, db *pgxpool.Pool, jwtService *gpauth.Service, l
 		DB:             db,
 		Analytics:      analytics.NewService(analytics.NewRepository(db)),
 		Portfolio:      portfolio.NewService(portfolioRepo, cl.Market, cl.Account, taxSvc),
-		Actuary:        actuary.NewService(actuaryRepo, cl.Employee),
+		Actuary:        actuary.NewService(actuaryRepo, cl.Employee, auditSvc),
 		Order:          orderSvc,
 		Tax:            taxSvc,
 		Funds:          fundsSvc,
@@ -140,6 +161,8 @@ func NewApp(cfg platform.Config, db *pgxpool.Pool, jwtService *gpauth.Service, l
 		Otc:            otcSvc,
 		OtcReservation: otcReservationSvc,
 		Interbank:      interbankSvc,
+		DividendPayout: dividendPayoutSvc,
+		Audit:          auditSvc,
 		Employees:      cl.Employee,
 	}
 
@@ -147,7 +170,7 @@ func NewApp(cfg platform.Config, db *pgxpool.Pool, jwtService *gpauth.Service, l
 	// same rows). order: daily limit reset + 15-min auto-decline. tax: monthly
 	// capital-gains collection. funds: daily fund-value snapshot. Flip the env
 	// flags on at cut-over.
-	if cfg.OrderSchedulersEnabled || cfg.TaxSchedulerEnabled || cfg.FundSnapshotSchedulerEnabled || cfg.OtcSchedulersEnabled {
+	if cfg.OrderSchedulersEnabled || cfg.RecurringOrderSchedulerEnabled || cfg.TaxSchedulerEnabled || cfg.DividendSchedulerEnabled || cfg.FundSnapshotSchedulerEnabled || cfg.OtcSchedulersEnabled {
 		c := cron.New(cron.WithSeconds())
 		if cfg.OrderSchedulersEnabled {
 			// order: reset all actuary daily limits at 23:59 (idempotent — sets to 0).
@@ -168,6 +191,18 @@ func NewApp(cfg platform.Config, db *pgxpool.Pool, jwtService *gpauth.Service, l
 			}
 			logger.Info("order schedulers enabled (limit reset 23:59, auto-decline /15min)")
 		}
+		if cfg.RecurringOrderSchedulerEnabled {
+			// recurring orders: fire due standing orders every 15 minutes
+			// (mirrors RecurringOrderScheduler @Scheduled cron 0 */15 * * * *).
+			if _, err := c.AddFunc("0 */15 * * * *", func() {
+				if err := orderSvc.RunDueRecurringOrders(context.Background()); err != nil {
+					logger.Error("scheduled recurring-order run failed", "error", err)
+				}
+			}); err != nil {
+				logger.Error("failed to register recurring-order schedule", "error", err)
+			}
+			logger.Info("recurring order scheduler enabled (/15min)")
+		}
 		if cfg.TaxSchedulerEnabled {
 			// tax: monthly capital-gains collection at 00:00 on the 1st (previous month).
 			if _, err := c.AddFunc("0 0 0 1 * *", func() {
@@ -178,6 +213,16 @@ func NewApp(cfg platform.Config, db *pgxpool.Pool, jwtService *gpauth.Service, l
 				logger.Error("failed to register tax collection schedule", "error", err)
 			}
 			logger.Info("tax scheduler enabled (monthly collection 0 0 0 1 * *)")
+		}
+		if cfg.DividendSchedulerEnabled {
+			// dividends (WP-14): daily 01:00 run, self-gated to the last business
+			// day of Mar/Jun/Sep/Dec (mirrors DividendScheduler cron 0 0 1 * * *).
+			if _, err := c.AddFunc("0 0 1 * * *", func() {
+				dividendPayoutSvc.RunQuarterlyPayout(context.Background())
+			}); err != nil {
+				logger.Error("failed to register dividend payout schedule", "error", err)
+			}
+			logger.Info("dividend scheduler enabled (daily 0 0 1 * * *, quarter-end gated)")
 		}
 		if cfg.FundSnapshotSchedulerEnabled {
 			// funds: daily value snapshot at 00:00:10 (matches Java
@@ -219,9 +264,22 @@ func NewApp(cfg platform.Config, db *pgxpool.Pool, jwtService *gpauth.Service, l
 	// round-robin deliveries → half-processed sagas). Flip to true at cut-over.
 	// Funds consume from saga.exchange (sagaCfg); OTC consume from saga.events
 	// (otcSagaCfg) — different exchanges, one shared cancel context.
-	if cfg.FundSagaConsumersEnabled || cfg.OtcSagaConsumersEnabled {
+	if cfg.FundSagaConsumersEnabled || cfg.OtcSagaConsumersEnabled || cfg.AuditConsumerEnabled {
 		ctx, cancel := context.WithCancel(context.Background())
 		app.cancel = cancel
+		if cfg.AuditConsumerEnabled {
+			// audit (WP-2): the audit.# sink on employee.events (the default
+			// exchange of rabbitmq.LoadConfig, same one the notifiers publish to).
+			auditConsCfg := rabbitmq.LoadConfig()
+			if consumer, err := audit.StartConsumer(ctx, auditConsCfg, auditSvc, logger); err != nil {
+				logger.Error("audit consumer init failed", "error", err)
+			} else {
+				app.consumers = append(app.consumers, consumer)
+				logger.Info("audit consumer started (AUDIT_CONSUMER_ENABLED=true)")
+			}
+		} else {
+			logger.Info("audit consumer disabled (coexistence: only one audit-log-queue consumer may run); set AUDIT_CONSUMER_ENABLED=true at cut-over")
+		}
 		if cfg.FundSagaConsumersEnabled {
 			if consumers, err := funds.StartSagaConsumers(ctx, sagaCfg, fundsSvc, logger); err != nil {
 				logger.Error("fund saga consumers init failed", "error", err)

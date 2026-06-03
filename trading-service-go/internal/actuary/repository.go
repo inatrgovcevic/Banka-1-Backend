@@ -227,14 +227,9 @@ func (r *Repository) UpdateReservedAndUsedLimit(ctx context.Context, q Querier, 
 	return err
 }
 
-// InsertAuditLog writes a single audit_log row.
-func (r *Repository) InsertAuditLog(ctx context.Context, actorID int64, actorRole, actionType, targetType, targetID, oldValue, newValue string) error {
-	_, err := r.db.Exec(ctx, `
-		INSERT INTO audit_log (actor_id, actor_role, action_type, target_type, target_id, old_value, new_value)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		actorID, actorRole, actionType, targetType, targetID, oldValue, newValue)
-	return err
-}
+// (InsertAuditLog was removed: agent-management audit events now go through the
+// WP-2 audit sink — see Service.recordAgentAudit over internal/audit, which
+// writes the reshaped audit_log schema from migration 007.)
 
 // ResetAllLimits zeroes used_limit and reserved_limit for every actuary row.
 // Mirrors ActuaryServiceImpl.resetAllLimits (daily 23:59 scheduler).

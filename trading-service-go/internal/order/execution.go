@@ -44,8 +44,11 @@ func (s *Service) processExecutionAttempt(orderID int64) {
 		return
 	}
 
+	var fill *portionFill
 	if err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
-		return s.executeOrderPortion(ctx, tx, orderID)
+		f, e := s.executeOrderPortion(ctx, tx, orderID)
+		fill = f
+		return e
 	}); err != nil {
 		s.logger.Error("order execution attempt failed, retrying", "orderId", orderID, "delay", retryDelayOnError, "error", err)
 		s.worker.Schedule(orderID, retryDelayOnError)
@@ -57,10 +60,33 @@ func (s *Service) processExecutionAttempt(orderID int64) {
 		s.logger.Error("order execution reload failed", "orderId", orderID, "error", err)
 		return
 	}
+	// Lifecycle DONE / PARTIAL_FILL notification after the portion commits (mirrors
+	// OrderExecutionServiceImpl: event = remainingPortions==0 ? DONE : PARTIAL_FILL).
+	// Published only when a portion actually filled this round, and after commit so
+	// a rolled-back/retried attempt never double-pushes (OrderEventNotifier's
+	// afterCommit guarantee).
+	if fill != nil && fill.executed && updated != nil {
+		if fill.done {
+			s.notifier.OrderDone(ctx, *s.buildLifecyclePayload(ctx, updated, eventDone, fill.ticker, fill.price))
+		} else {
+			s.notifier.OrderPartialFill(ctx, *s.buildLifecyclePayload(ctx, updated, eventPartialFill, fill.ticker, fill.price))
+		}
+	}
 	if !executable(updated) {
 		return
 	}
 	s.worker.Schedule(orderID, s.calculateExecutionDelay(ctx, updated))
+}
+
+// portionFill captures the outcome of one executeOrderPortion call so
+// processExecutionAttempt can publish the DONE / PARTIAL_FILL lifecycle
+// notification after the transaction commits. executed is false for no-op rounds
+// (not eligible, no capacity, missing quote) — those publish nothing.
+type portionFill struct {
+	executed bool
+	done     bool
+	ticker   string
+	price    decimal.Decimal
 }
 
 // executable mirrors the guard repeated across processExecutionAttempt /
@@ -72,44 +98,44 @@ func executable(o *Order) bool {
 // executeOrderPortion executes a single portion under row locks
 // (order → portfolio → actuary), mirroring OrderExecutionServiceImpl
 // .executeOrderPortion. Runs inside RunInTx.
-func (s *Service) executeOrderPortion(ctx context.Context, tx pgx.Tx, orderID int64) error {
+func (s *Service) executeOrderPortion(ctx context.Context, tx pgx.Tx, orderID int64) (*portionFill, error) {
 	managed, err := s.repo.FindByIDForUpdate(ctx, tx, orderID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !executable(managed) {
-		return nil
+		return nil, nil
 	}
 
 	listing, err := s.market.GetListing(ctx, managed.ListingID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !hasRequiredQuoteData(managed, listing) {
 		s.logger.Warn("skipping execution attempt: missing quote data", "orderId", managed.ID)
-		return nil
+		return nil, nil
 	}
 
 	eligible, err := s.activateIfEligible(ctx, tx, managed, listing)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !eligible {
-		return nil
+		return nil, nil
 	}
 
 	capacity := currentExecutableCapacity(managed, listing)
 	if capacity <= 0 {
-		return nil
+		return nil, nil
 	}
 	if managed.AllOrNone && capacity < managed.RemainingPortions {
-		return nil
+		return nil, nil
 	}
 
 	quantityToExecute := determineExecutionQuantity(managed, capacity)
 	executionPrice, ok := calculateExecutionPricePerUnit(managed, listing)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
 	grossChunk := executionPrice.
@@ -118,11 +144,11 @@ func (s *Service) executeOrderPortion(ctx context.Context, tx pgx.Tx, orderID in
 	commission := s.commission(ctx, orderPricingFamily(managed.OrderType), grossChunk, listing.Currency())
 
 	if err := s.createTransaction(ctx, tx, managed, quantityToExecute, executionPrice, grossChunk, commission); err != nil {
-		return err
+		return nil, err
 	}
 	accountDebit, err := s.transferFunds(ctx, managed, listing.Currency(), grossChunk)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// INVESTMENT_FUND BUY: shares go to the fund's holdings table, not the
 	// user's portfolio. Mirror Java OrderExecutionServiceImpl.executeOrderPortion
@@ -145,24 +171,37 @@ func (s *Service) executeOrderPortion(ctx context.Context, tx pgx.Tx, orderID in
 		}
 	} else {
 		if err := s.updatePortfolio(ctx, tx, managed, listing, quantityToExecute, executionPrice); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if managed.Direction == DirectionSell {
 		if err := s.transferSellCommission(ctx, managed, listing.Currency(), commission); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if err := s.finalizeActuaryExposure(ctx, tx, managed, listing.Currency(), grossChunk); err != nil {
-		return err
+		return nil, err
 	}
 
 	managed.RemainingPortions -= quantityToExecute
+	done := false
 	if managed.RemainingPortions == 0 {
 		managed.IsDone = true
 		managed.Status = StatusDone
+		// Mirror OrderExecutionServiceImpl: stamp executedAt when the final
+		// portion fills (migration 004 / Java changeset order:12).
+		now := time.Now().UTC()
+		managed.ExecutedAt = &now
+		done = true
 	}
-	return s.repo.Update(ctx, tx, managed)
+	if err := s.repo.Update(ctx, tx, managed); err != nil {
+		return nil, err
+	}
+	fillTicker := ""
+	if listing.Ticker != nil {
+		fillTicker = *listing.Ticker
+	}
+	return &portionFill{executed: true, done: done, ticker: fillTicker, price: executionPrice}, nil
 }
 
 // activateIfEligible mirrors activateIfEligible. STOP→MARKET / STOP_LIMIT→LIMIT on

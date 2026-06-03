@@ -66,6 +66,35 @@ func (d LocalDate) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + d.Time.Format("2006-01-02") + `"`), nil
 }
 
+// UTCInstant serializes the way Jackson renders a Java Instant: ISO-8601 in UTC
+// with a trailing Z (e.g. "2026-05-26T16:59:55.337Z"). The stored TIMESTAMP
+// columns are naive UTC (Java reads them with toInstant(ZoneOffset.UTC); pgx
+// scans them as UTC), so marshaling is a plain UTC format. An invalid value
+// marshals to null. Added for the Celina 3 enriched order timestamps
+// (OrderResponse.lastModification/createdAt/executedAt).
+type UTCInstant struct {
+	Time  time.Time
+	Valid bool
+}
+
+func NewUTCInstant(t time.Time) UTCInstant {
+	return UTCInstant{Time: t, Valid: true}
+}
+
+func UTCInstantFromPtr(t *time.Time) UTCInstant {
+	if t == nil {
+		return UTCInstant{}
+	}
+	return UTCInstant{Time: *t, Valid: true}
+}
+
+func (i UTCInstant) MarshalJSON() ([]byte, error) {
+	if !i.Valid {
+		return []byte("null"), nil
+	}
+	return []byte(`"` + i.Time.UTC().Format("2006-01-02T15:04:05.999999999") + `Z"`), nil
+}
+
 // AnalyticsRunResponse ↔ GET /analytics/runs/latest
 type AnalyticsRunResponse struct {
 	RunID       string        `json:"runId"`
