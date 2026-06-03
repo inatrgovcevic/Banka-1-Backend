@@ -423,5 +423,8 @@ func (s *Service) RefreshOpenListings(ctx context.Context) error {
 		}
 		_, _ = s.RefreshListing(ctx, item.ID)
 	}
+	if _, err := s.EvaluateActivePriceAlerts(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("price alert evaluation after refresh failed", "error", err.Error())
+	}
 	return nil
 }

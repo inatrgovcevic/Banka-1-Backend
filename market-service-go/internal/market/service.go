@@ -2,6 +2,7 @@ package market
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -12,15 +13,34 @@ import (
 	"banka1/market-service-go/internal/clients"
 	"banka1/market-service-go/internal/fx"
 	"banka1/market-service-go/internal/platform"
+	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 )
 
 type Service struct {
-	cfg         platform.Config
-	repo        *Repository
-	fx          *fx.Service
-	logger      *slog.Logger
-	alphaClient *clients.AlphaVantageClient
+	cfg            platform.Config
+	repo           *Repository
+	fx             *fx.Service
+	logger         *slog.Logger
+	alphaClient    *clients.AlphaVantageClient
+	alertPublisher PriceAlertPublisher
+}
+
+var (
+	ErrNotFound   = errors.New("not found")
+	ErrBadRequest = errors.New("bad request")
+	ErrConflict   = errors.New("conflict")
+)
+
+type PriceAlertPublisher interface {
+	PublishPriceAlertTriggered(ctx context.Context, payload PriceAlertNotificationPayload) error
+}
+
+type PriceAlertNotificationPayload struct {
+	Username          string            `json:"username"`
+	UserEmail         *string           `json:"userEmail"`
+	TemplateVariables map[string]string `json:"templateVariables"`
+	ClientID          *int64            `json:"clientId"`
 }
 
 func NewService(cfg platform.Config, repo *Repository, fxService *fx.Service, logger *slog.Logger) *Service {
@@ -35,6 +55,10 @@ func NewService(cfg platform.Config, repo *Repository, fxService *fx.Service, lo
 
 func (s *Service) SetAlphaClient(client *clients.AlphaVantageClient) {
 	s.alphaClient = client
+}
+
+func (s *Service) SetPriceAlertPublisher(publisher PriceAlertPublisher) {
+	s.alertPublisher = publisher
 }
 
 func (s *Service) GetExchangeStatus(ctx context.Context, id int64) (*api.StockExchangeStatusResponse, error) {
@@ -151,27 +175,27 @@ func (s *Service) GetListingDetails(ctx context.Context, id int64, period string
 	changePercent := calculateChangePercentPtr(row.Price, row.Change)
 	dollarVolume := calculateDollarVolume(row.Price, row.Volume)
 	resp := &api.ListingDetailsResponse{
-		ListingID:         row.ID,
-		SecurityID:        row.SecurityID,
-		ListingType:       string(row.ListingType),
-		Ticker:            row.Ticker,
-		Name:              row.Name,
-		StockExchangeID:   row.StockExchangeID,
-		ExchangeMICCode:   row.ExchangeMICCode,
-		ExchangeAcronym:   row.ExchangeAcronym,
-		ExchangeName:      row.ExchangeName,
-		LastRefresh:       formatLocalDateTime(row.LastRefresh),
-		Price:             dec(row.Price),
-		Ask:               dec(row.Ask),
-		Bid:               dec(row.Bid),
-		Change:            dec(row.Change),
-		ChangePercent:     changePercent,
-		Volume:            row.Volume,
-		DollarVolume:      dollarVolume,
-		RequestedPeriod:   period,
-		PriceHistory:      priceHistory,
-		OptionGroups:      []api.StockOptionSettlementGroupResponse{},
-		Currency:          row.Currency,
+		ListingID:       row.ID,
+		SecurityID:      row.SecurityID,
+		ListingType:     string(row.ListingType),
+		Ticker:          row.Ticker,
+		Name:            row.Name,
+		StockExchangeID: row.StockExchangeID,
+		ExchangeMICCode: row.ExchangeMICCode,
+		ExchangeAcronym: row.ExchangeAcronym,
+		ExchangeName:    row.ExchangeName,
+		LastRefresh:     formatLocalDateTime(row.LastRefresh),
+		Price:           dec(row.Price),
+		Ask:             dec(row.Ask),
+		Bid:             dec(row.Bid),
+		Change:          dec(row.Change),
+		ChangePercent:   changePercent,
+		Volume:          row.Volume,
+		DollarVolume:    dollarVolume,
+		RequestedPeriod: period,
+		PriceHistory:    priceHistory,
+		OptionGroups:    []api.StockOptionSettlementGroupResponse{},
+		Currency:        row.Currency,
 	}
 	switch row.ListingType {
 	case ListingTypeStock:
@@ -644,4 +668,239 @@ func decDefault(value string) decimal.Decimal {
 
 func formatLocalDateTime(value time.Time) string {
 	return value.UTC().Format("2006-01-02T15:04:05")
+}
+
+func (s *Service) ListPriceAlerts(ctx context.Context, userID int64) ([]PriceAlert, error) {
+	return s.repo.ListPriceAlertsByUser(ctx, userID)
+}
+
+func (s *Service) CreatePriceAlert(ctx context.Context, userID int64, recipientType string, listingID int64, condition PriceAlertCondition, threshold, notificationType string) (*PriceAlert, error) {
+	if listingID <= 0 || !validAlertCondition(condition) {
+		return nil, ErrBadRequest
+	}
+	thresholdDec, err := decimal.NewFromString(strings.TrimSpace(threshold))
+	if err != nil || !thresholdDec.GreaterThan(decimal.Zero) {
+		return nil, ErrBadRequest
+	}
+	notificationType, err = normalizeNotificationType(notificationType)
+	if err != nil {
+		return nil, err
+	}
+	exists, err := s.repo.ListingExists(ctx, listingID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrNotFound
+	}
+	return s.repo.CreatePriceAlert(ctx, PriceAlert{
+		UserID:           userID,
+		RecipientType:    recipientType,
+		ListingID:        listingID,
+		Condition:        condition,
+		Threshold:        thresholdDec.StringFixed(4),
+		NotificationType: notificationType,
+		Active:           true,
+		CreatedAt:        time.Now().UTC(),
+	})
+}
+
+func (s *Service) TogglePriceAlert(ctx context.Context, userID, alertID int64) (*PriceAlert, error) {
+	alert, err := s.repo.ToggleOwnedPriceAlert(ctx, userID, alertID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return alert, err
+}
+
+func (s *Service) DeletePriceAlert(ctx context.Context, userID, alertID int64) error {
+	deleted, err := s.repo.DeleteOwnedPriceAlert(ctx, userID, alertID)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Service) EvaluateActivePriceAlerts(ctx context.Context) (int, error) {
+	alerts, err := s.repo.ListActivePriceAlerts(ctx)
+	if err != nil {
+		return 0, err
+	}
+	fired := 0
+	for _, alert := range alerts {
+		listing, err := s.repo.GetListing(ctx, alert.ListingID)
+		if err != nil {
+			continue
+		}
+		satisfied := alertSatisfied(alert, *listing)
+		if !satisfied {
+			if alert.LastTriggeredAt != nil {
+				_ = s.repo.SetPriceAlertLastTriggered(ctx, alert.ID, nil)
+			}
+			continue
+		}
+		if alert.LastTriggeredAt != nil {
+			continue
+		}
+		now := time.Now().UTC()
+		if err := s.repo.SetPriceAlertLastTriggered(ctx, alert.ID, &now); err != nil {
+			continue
+		}
+		if s.alertPublisher != nil {
+			if err := s.alertPublisher.PublishPriceAlertTriggered(ctx, priceAlertPayload(alert, *listing)); err != nil && s.logger != nil {
+				s.logger.Warn("price alert publish failed", "alertId", alert.ID, "error", err.Error())
+			}
+		}
+		fired++
+	}
+	return fired, nil
+}
+
+func (s *Service) ListWatchlists(ctx context.Context, userID int64) ([]Watchlist, error) {
+	return s.repo.ListWatchlistsByUser(ctx, userID)
+}
+
+func (s *Service) CreateWatchlist(ctx context.Context, userID int64, name string) (*Watchlist, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 128 {
+		return nil, ErrBadRequest
+	}
+	item, err := s.repo.CreateWatchlist(ctx, userID, name, time.Now().UTC())
+	if item != nil {
+		item.ItemCount = 0
+	}
+	return item, err
+}
+
+func (s *Service) DeleteWatchlist(ctx context.Context, userID, watchlistID int64) error {
+	deleted, err := s.repo.DeleteOwnedWatchlist(ctx, userID, watchlistID)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Service) ListWatchlistItems(ctx context.Context, userID, watchlistID int64, filter *ListingType) ([]WatchlistItem, error) {
+	exists, err := s.repo.OwnedWatchlistExists(ctx, userID, watchlistID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrNotFound
+	}
+	items, err := s.repo.ListWatchlistItems(ctx, watchlistID)
+	if err != nil {
+		return nil, err
+	}
+	if filter == nil {
+		return items, nil
+	}
+	out := make([]WatchlistItem, 0, len(items))
+	for _, item := range items {
+		if item.Listing.ListingType == *filter {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+
+func (s *Service) AddWatchlistItem(ctx context.Context, userID, watchlistID, listingID int64) (*WatchlistItem, error) {
+	exists, err := s.repo.OwnedWatchlistExists(ctx, userID, watchlistID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrNotFound
+	}
+	listingExists, err := s.repo.ListingExists(ctx, listingID)
+	if err != nil {
+		return nil, err
+	}
+	if !listingExists {
+		return nil, ErrNotFound
+	}
+	item, err := s.repo.CreateWatchlistItem(ctx, watchlistID, listingID, time.Now().UTC())
+	if IsUniqueViolation(err) {
+		return nil, ErrConflict
+	}
+	return item, err
+}
+
+func (s *Service) RemoveWatchlistItem(ctx context.Context, userID, watchlistID, itemID int64) error {
+	exists, err := s.repo.OwnedWatchlistExists(ctx, userID, watchlistID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	deleted, err := s.repo.DeleteOwnedWatchlistItem(ctx, watchlistID, itemID)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Service) ListDividendData(ctx context.Context) ([]DividendData, error) {
+	return s.repo.ListDividendData(ctx)
+}
+
+func validAlertCondition(condition PriceAlertCondition) bool {
+	return condition == PriceAlertAbove || condition == PriceAlertBelow || condition == PriceAlertPctDropIntraday
+}
+
+func normalizeNotificationType(value string) (string, error) {
+	normalized := strings.ToUpper(strings.TrimSpace(value))
+	switch normalized {
+	case "EMAIL", "PUSH", "IN_APP", "ALL":
+		return normalized, nil
+	default:
+		return "", ErrBadRequest
+	}
+}
+
+func alertSatisfied(alert PriceAlert, listing Listing) bool {
+	price := decimal.RequireFromString(listing.Price)
+	threshold := decimal.RequireFromString(alert.Threshold)
+	switch alert.Condition {
+	case PriceAlertAbove:
+		return price.GreaterThanOrEqual(threshold)
+	case PriceAlertBelow:
+		return price.LessThanOrEqual(threshold)
+	case PriceAlertPctDropIntraday:
+		changePercent, ok := calculateChangePercent(listing.Price, listing.Change)
+		return ok && changePercent.LessThanOrEqual(threshold.Neg())
+	default:
+		return false
+	}
+}
+
+func priceAlertPayload(alert PriceAlert, listing Listing) PriceAlertNotificationPayload {
+	var clientID *int64
+	if strings.EqualFold(alert.RecipientType, "CLIENT") {
+		id := alert.UserID
+		clientID = &id
+	}
+	return PriceAlertNotificationPayload{
+		Username:  "korisnice",
+		UserEmail: nil,
+		TemplateVariables: map[string]string{
+			"name":           "korisnice",
+			"ticker":         listing.Ticker,
+			"price":          listing.Price,
+			"triggeredPrice": listing.Price,
+			"threshold":      alert.Threshold,
+			"condition":      string(alert.Condition),
+		},
+		ClientID: clientID,
+	}
 }

@@ -2,10 +2,13 @@ package market
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -357,12 +360,12 @@ func (r *Repository) listingsByType(ctx context.Context, listingType ListingType
 }
 
 func (r *Repository) GetStockByTicker(ctx context.Context, ticker string) (*struct {
-	ID              int64
-	Ticker          string
-	Name            string
+	ID                int64
+	Ticker            string
+	Name              string
 	OutstandingShares int64
-	DividendYield   string
-	ListingID       int64
+	DividendYield     string
+	ListingID         int64
 }, error) {
 	var row struct {
 		ID                int64
@@ -429,4 +432,221 @@ func (r *Repository) UpdateStockExchange(ctx context.Context, exchange StockExch
 		exchange.OpenTime, exchange.CloseTime, exchange.PreMarketOpenTime, exchange.PreMarketCloseTime,
 		exchange.PostMarketOpenTime, exchange.PostMarketCloseTime, exchange.IsActive)
 	return err
+}
+
+func (r *Repository) ListingExists(ctx context.Context, id int64) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx, `select exists(select 1 from listing where id=$1)`, id).Scan(&exists)
+	return exists, err
+}
+
+func (r *Repository) ListPriceAlertsByUser(ctx context.Context, userID int64) ([]PriceAlert, error) {
+	rows, err := r.db.Query(ctx, `select id, user_id, recipient_type, listing_id, condition, threshold::text,
+		notification_type, active, created_at, last_triggered_at
+		from price_alerts where user_id=$1 order by created_at desc`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanPriceAlerts(rows)
+}
+
+func (r *Repository) CreatePriceAlert(ctx context.Context, alert PriceAlert) (*PriceAlert, error) {
+	err := r.db.QueryRow(ctx, `insert into price_alerts
+		(user_id, recipient_type, listing_id, condition, threshold, notification_type, active, created_at)
+		values ($1,$2,$3,$4,$5::numeric,$6,$7,$8)
+		returning id, user_id, recipient_type, listing_id, condition, threshold::text, notification_type, active, created_at, last_triggered_at`,
+		alert.UserID, alert.RecipientType, alert.ListingID, alert.Condition, alert.Threshold, alert.NotificationType, alert.Active, alert.CreatedAt).
+		Scan(&alert.ID, &alert.UserID, &alert.RecipientType, &alert.ListingID, &alert.Condition, &alert.Threshold,
+			&alert.NotificationType, &alert.Active, &alert.CreatedAt, &alert.LastTriggeredAt)
+	if err != nil {
+		return nil, err
+	}
+	return &alert, nil
+}
+
+func (r *Repository) ToggleOwnedPriceAlert(ctx context.Context, userID, alertID int64) (*PriceAlert, error) {
+	var alert PriceAlert
+	err := r.db.QueryRow(ctx, `update price_alerts set active = not active
+		where id=$1 and user_id=$2
+		returning id, user_id, recipient_type, listing_id, condition, threshold::text, notification_type, active, created_at, last_triggered_at`,
+		alertID, userID).Scan(&alert.ID, &alert.UserID, &alert.RecipientType, &alert.ListingID, &alert.Condition, &alert.Threshold,
+		&alert.NotificationType, &alert.Active, &alert.CreatedAt, &alert.LastTriggeredAt)
+	if err != nil {
+		return nil, err
+	}
+	return &alert, nil
+}
+
+func (r *Repository) DeleteOwnedPriceAlert(ctx context.Context, userID, alertID int64) (bool, error) {
+	cmd, err := r.db.Exec(ctx, `delete from price_alerts where id=$1 and user_id=$2`, alertID, userID)
+	if err != nil {
+		return false, err
+	}
+	return cmd.RowsAffected() > 0, nil
+}
+
+func (r *Repository) ListActivePriceAlerts(ctx context.Context) ([]PriceAlert, error) {
+	rows, err := r.db.Query(ctx, `select id, user_id, recipient_type, listing_id, condition, threshold::text,
+		notification_type, active, created_at, last_triggered_at
+		from price_alerts where active = true order by id asc`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanPriceAlerts(rows)
+}
+
+func (r *Repository) SetPriceAlertLastTriggered(ctx context.Context, id int64, triggeredAt *time.Time) error {
+	_, err := r.db.Exec(ctx, `update price_alerts set last_triggered_at=$2 where id=$1`, id, triggeredAt)
+	return err
+}
+
+func scanPriceAlerts(rows pgx.Rows) ([]PriceAlert, error) {
+	var out []PriceAlert
+	for rows.Next() {
+		var item PriceAlert
+		if err := rows.Scan(&item.ID, &item.UserID, &item.RecipientType, &item.ListingID, &item.Condition, &item.Threshold,
+			&item.NotificationType, &item.Active, &item.CreatedAt, &item.LastTriggeredAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) ListWatchlistsByUser(ctx context.Context, userID int64) ([]Watchlist, error) {
+	rows, err := r.db.Query(ctx, `select w.id, w.user_id, w.name, w.created_at, count(wi.id)
+		from watchlists w left join watchlist_items wi on wi.watchlist_id = w.id
+		where w.user_id=$1
+		group by w.id, w.user_id, w.name, w.created_at
+		order by w.created_at desc`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Watchlist
+	for rows.Next() {
+		var item Watchlist
+		if err := rows.Scan(&item.ID, &item.UserID, &item.Name, &item.CreatedAt, &item.ItemCount); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) CreateWatchlist(ctx context.Context, userID int64, name string, createdAt time.Time) (*Watchlist, error) {
+	var item Watchlist
+	err := r.db.QueryRow(ctx, `insert into watchlists(user_id, name, created_at)
+		values ($1,$2,$3) returning id, user_id, name, created_at`, userID, name, createdAt).
+		Scan(&item.ID, &item.UserID, &item.Name, &item.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+func (r *Repository) OwnedWatchlistExists(ctx context.Context, userID, watchlistID int64) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx, `select exists(select 1 from watchlists where id=$1 and user_id=$2)`, watchlistID, userID).Scan(&exists)
+	return exists, err
+}
+
+func (r *Repository) DeleteOwnedWatchlist(ctx context.Context, userID, watchlistID int64) (bool, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	var exists bool
+	if err := tx.QueryRow(ctx, `select exists(select 1 from watchlists where id=$1 and user_id=$2)`, watchlistID, userID).Scan(&exists); err != nil || !exists {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `delete from watchlist_items where watchlist_id=$1`, watchlistID); err != nil {
+		return false, err
+	}
+	cmd, err := tx.Exec(ctx, `delete from watchlists where id=$1 and user_id=$2`, watchlistID, userID)
+	if err != nil || cmd.RowsAffected() == 0 {
+		return false, err
+	}
+	return true, tx.Commit(ctx)
+}
+
+func (r *Repository) ListWatchlistItems(ctx context.Context, watchlistID int64) ([]WatchlistItem, error) {
+	rows, err := r.db.Query(ctx, `select wi.id, wi.watchlist_id, wi.listing_id, wi.added_at,
+		l.id, l.security_id, l.listing_type, l.stock_exchange_id, l.ticker, l.name, l.last_refresh,
+		se.exchange_mic_code, l.price::text, l.ask::text, l.bid::text, l.change::text, l.volume, se.currency
+		from watchlist_items wi
+		join listing l on l.id = wi.listing_id
+		join stock_exchange se on se.id = l.stock_exchange_id
+		where wi.watchlist_id=$1 order by wi.added_at desc`, watchlistID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WatchlistItem
+	for rows.Next() {
+		var item WatchlistItem
+		if err := rows.Scan(&item.ID, &item.WatchlistID, &item.ListingID, &item.AddedAt,
+			&item.Listing.ID, &item.Listing.SecurityID, &item.Listing.ListingType, &item.Listing.StockExchangeID,
+			&item.Listing.Ticker, &item.Listing.Name, &item.Listing.LastRefresh, &item.Listing.ExchangeMICCode,
+			&item.Listing.Price, &item.Listing.Ask, &item.Listing.Bid, &item.Listing.Change, &item.Listing.Volume,
+			&item.Listing.Currency); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) CreateWatchlistItem(ctx context.Context, watchlistID, listingID int64, addedAt time.Time) (*WatchlistItem, error) {
+	var item WatchlistItem
+	err := r.db.QueryRow(ctx, `insert into watchlist_items(watchlist_id, listing_id, added_at)
+		values ($1,$2,$3) returning id, watchlist_id, listing_id, added_at`, watchlistID, listingID, addedAt).
+		Scan(&item.ID, &item.WatchlistID, &item.ListingID, &item.AddedAt)
+	if err != nil {
+		return nil, err
+	}
+	listing, err := r.GetListing(ctx, listingID)
+	if err != nil {
+		return nil, err
+	}
+	item.Listing = *listing
+	return &item, nil
+}
+
+func (r *Repository) DeleteOwnedWatchlistItem(ctx context.Context, watchlistID, itemID int64) (bool, error) {
+	cmd, err := r.db.Exec(ctx, `delete from watchlist_items where id=$1 and watchlist_id=$2`, itemID, watchlistID)
+	if err != nil {
+		return false, err
+	}
+	return cmd.RowsAffected() > 0, nil
+}
+
+func IsUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+func (r *Repository) ListDividendData(ctx context.Context) ([]DividendData, error) {
+	rows, err := r.db.Query(ctx, `select l.id, l.ticker, l.price::text, se.currency, st.dividend_yield::text
+		from listing l
+		join stock_exchange se on se.id = l.stock_exchange_id
+		join stock st on upper(st.ticker) = upper(l.ticker)
+		where l.listing_type = 'STOCK'
+		order by l.ticker asc`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DividendData
+	for rows.Next() {
+		var item DividendData
+		if err := rows.Scan(&item.ListingID, &item.Ticker, &item.Price, &item.Currency, &item.DividendYield); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
 }
