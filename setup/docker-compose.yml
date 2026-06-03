@@ -549,6 +549,11 @@ services:
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       STOCK_PRICE_CACHE_TTL_SECONDS: ${STOCK_PRICE_CACHE_TTL_SECONDS:-15}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
       MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://otel-collector:4318/v1/metrics
       MANAGEMENT_OTLP_TRACING_ENDPOINT: http://otel-collector:4318/v1/traces
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
@@ -561,6 +566,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
       otel-collector: { condition: service_started }
     expose:
       - "${MARKET_SERVICE_PORT:-8085}"
@@ -602,11 +608,17 @@ services:
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       STOCK_PRICE_CACHE_TTL_SECONDS: ${STOCK_PRICE_CACHE_TTL_SECONDS:-15}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      NOTIFICATION_EXCHANGE: ${NOTIFICATION_EXCHANGE:-employee.events}
       EXCHANGE_RATES_FETCH_ON_STARTUP: ${EXCHANGE_RATES_FETCH_ON_STARTUP:-true}
       EXCHANGE_RATES_FETCH_CRON: ${EXCHANGE_RATES_FETCH_CRON:-0 0 8 * * *}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
     ports:
       - "${MARKET_SERVICE_GO_PORT:-18085}:${MARKET_SERVICE_GO_PORT:-18085}"
       - "${MARKET_SERVICE_GO_GRPC_PORT:-19085}:${MARKET_SERVICE_GO_GRPC_PORT:-19085}"

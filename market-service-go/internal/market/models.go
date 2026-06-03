@@ -12,6 +12,15 @@ const (
 	ListingTypeStock   ListingType = "STOCK"
 	ListingTypeFutures ListingType = "FUTURES"
 	ListingTypeForex   ListingType = "FOREX"
+	ListingTypeOption  ListingType = "OPTION"
+)
+
+type PriceAlertCondition string
+
+const (
+	PriceAlertAbove           PriceAlertCondition = "ABOVE"
+	PriceAlertBelow           PriceAlertCondition = "BELOW"
+	PriceAlertPctDropIntraday PriceAlertCondition = "PCT_DROP_INTRADAY"
 )
 
 type MarketPhase string
@@ -31,20 +40,20 @@ const (
 )
 
 type StockExchange struct {
-	ID                 int64
-	ExchangeName       string
-	ExchangeAcronym    string
-	ExchangeMICCode    string
-	Polity             string
-	Currency           string
-	TimeZone           string
-	OpenTime           string
-	CloseTime          string
-	PreMarketOpenTime  *string
-	PreMarketCloseTime *string
-	PostMarketOpenTime *string
+	ID                  int64
+	ExchangeName        string
+	ExchangeAcronym     string
+	ExchangeMICCode     string
+	Polity              string
+	Currency            string
+	TimeZone            string
+	OpenTime            string
+	CloseTime           string
+	PreMarketOpenTime   *string
+	PreMarketCloseTime  *string
+	PostMarketOpenTime  *string
 	PostMarketCloseTime *string
-	IsActive           bool
+	IsActive            bool
 }
 
 type Listing struct {
@@ -121,4 +130,41 @@ type StockPriceSnapshot struct {
 	Volume        int64           `json:"volume"`
 	Currency      string          `json:"currency"`
 	Timestamp     time.Time       `json:"timestamp"`
+}
+
+type PriceAlert struct {
+	ID               int64
+	UserID           int64
+	RecipientType    string
+	ListingID        int64
+	Condition        PriceAlertCondition
+	Threshold        string
+	NotificationType string
+	Active           bool
+	CreatedAt        time.Time
+	LastTriggeredAt  *time.Time
+}
+
+type Watchlist struct {
+	ID        int64
+	UserID    int64
+	Name      string
+	CreatedAt time.Time
+	ItemCount int64
+}
+
+type WatchlistItem struct {
+	ID          int64
+	WatchlistID int64
+	ListingID   int64
+	AddedAt     time.Time
+	Listing     Listing
+}
+
+type DividendData struct {
+	ListingID     int64
+	Ticker        string
+	Price         string
+	Currency      string
+	DividendYield string
 }

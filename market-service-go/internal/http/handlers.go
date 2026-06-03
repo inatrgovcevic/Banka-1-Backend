@@ -2,6 +2,8 @@ package http
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -18,6 +20,63 @@ import (
 type Handlers struct {
 	cfg platform.Config
 	app *App
+}
+
+type createPriceAlertRequest struct {
+	ListingID        int64                      `json:"listingId"`
+	Condition        market.PriceAlertCondition `json:"condition"`
+	Threshold        json.RawMessage            `json:"threshold"`
+	NotificationType string                     `json:"notificationType"`
+}
+
+type priceAlertResponse struct {
+	ID               int64                      `json:"id"`
+	UserID           int64                      `json:"userId"`
+	RecipientType    string                     `json:"recipientType"`
+	ListingID        int64                      `json:"listingId"`
+	Condition        market.PriceAlertCondition `json:"condition"`
+	Threshold        decimal.Decimal            `json:"threshold"`
+	NotificationType string                     `json:"notificationType"`
+	Active           bool                       `json:"active"`
+	CreatedAt        string                     `json:"createdAt"`
+	LastTriggeredAt  *string                    `json:"lastTriggeredAt"`
+}
+
+type createWatchlistRequest struct {
+	Name string `json:"name"`
+}
+
+type addWatchlistItemRequest struct {
+	ListingID int64 `json:"listingId"`
+}
+
+type watchlistResponse struct {
+	ID        int64  `json:"id"`
+	UserID    int64  `json:"userId"`
+	Name      string `json:"name"`
+	ItemCount int64  `json:"itemCount"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type watchlistItemResponse struct {
+	ID          int64              `json:"id"`
+	WatchlistID int64              `json:"watchlistId"`
+	ListingID   int64              `json:"listingId"`
+	Ticker      string             `json:"ticker"`
+	Name        string             `json:"name"`
+	Price       decimal.Decimal    `json:"price"`
+	Change      decimal.Decimal    `json:"change"`
+	Volume      int64              `json:"volume"`
+	ListingType market.ListingType `json:"listingType"`
+	AddedAt     string             `json:"addedAt"`
+}
+
+type dividendDataResponse struct {
+	ListingID     int64           `json:"listingId"`
+	Ticker        string          `json:"ticker"`
+	Price         decimal.Decimal `json:"price"`
+	Currency      string          `json:"currency"`
+	DividendYield decimal.Decimal `json:"dividendYield"`
 }
 
 func NewHandlers(cfg platform.Config, app *App) *Handlers {
@@ -41,11 +100,11 @@ func (h *Handlers) GetSinglePriceFeed(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) StockInfo(w http.ResponseWriter, r *http.Request) {
 	platform.JSON(w, http.StatusOK, map[string]any{
-		"service":                 "stock-service",
-		"status":                  "UP",
-		"gatewayPrefix":           defaultString(r.Header.Get("X-Forwarded-Prefix"), "/stock"),
-		"exchangeServiceBaseUrl":  h.cfg.Stock.ExchangeServiceBaseURL,
-		"marketDataBaseUrl":       h.cfg.Stock.MarketDataBaseURL,
+		"service":                    "stock-service",
+		"status":                     "UP",
+		"gatewayPrefix":              defaultString(r.Header.Get("X-Forwarded-Prefix"), "/stock"),
+		"exchangeServiceBaseUrl":     h.cfg.Stock.ExchangeServiceBaseURL,
+		"marketDataBaseUrl":          h.cfg.Stock.MarketDataBaseURL,
 		"marketDataApiKeyConfigured": h.cfg.Stock.MarketDataAPIKey != "",
 	})
 }
@@ -151,12 +210,24 @@ func (h *Handlers) listListingsByType(w http.ResponseWriter, r *http.Request, li
 		Exchange: r.URL.Query().Get("exchange"),
 		Search:   r.URL.Query().Get("search"),
 	}
-	if value := r.URL.Query().Get("minPrice"); value != "" { filter.MinPrice = &value }
-	if value := r.URL.Query().Get("maxPrice"); value != "" { filter.MaxPrice = &value }
-	if value := r.URL.Query().Get("minAsk"); value != "" { filter.MinAsk = &value }
-	if value := r.URL.Query().Get("maxAsk"); value != "" { filter.MaxAsk = &value }
-	if value := r.URL.Query().Get("minBid"); value != "" { filter.MinBid = &value }
-	if value := r.URL.Query().Get("maxBid"); value != "" { filter.MaxBid = &value }
+	if value := r.URL.Query().Get("minPrice"); value != "" {
+		filter.MinPrice = &value
+	}
+	if value := r.URL.Query().Get("maxPrice"); value != "" {
+		filter.MaxPrice = &value
+	}
+	if value := r.URL.Query().Get("minAsk"); value != "" {
+		filter.MinAsk = &value
+	}
+	if value := r.URL.Query().Get("maxAsk"); value != "" {
+		filter.MaxAsk = &value
+	}
+	if value := r.URL.Query().Get("minBid"); value != "" {
+		filter.MinBid = &value
+	}
+	if value := r.URL.Query().Get("maxBid"); value != "" {
+		filter.MaxBid = &value
+	}
 	if value := r.URL.Query().Get("minVolume"); value != "" {
 		parsed, _ := strconv.ParseInt(value, 10, 64)
 		filter.MinVolume = &parsed
@@ -323,6 +394,173 @@ func (h *Handlers) StockAdminSubroutes(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
+func (h *Handlers) ListPriceAlerts(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok {
+		platform.Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing principal")
+		return
+	}
+	alerts, err := h.app.MarketService.ListPriceAlerts(r.Context(), principal.ID)
+	if err != nil {
+		platform.StockError(w, r, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	out := make([]priceAlertResponse, 0, len(alerts))
+	for _, alert := range alerts {
+		out = append(out, priceAlertDTO(alert))
+	}
+	platform.JSON(w, http.StatusOK, out)
+}
+
+func (h *Handlers) CreatePriceAlert(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok {
+		platform.Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing principal")
+		return
+	}
+	var req createPriceAlertRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		platform.StockError(w, r, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	threshold, ok := rawJSONScalar(req.Threshold)
+	if !ok {
+		platform.StockError(w, r, http.StatusBadRequest, "Invalid request")
+		return
+	}
+	alert, err := h.app.MarketService.CreatePriceAlert(r.Context(), principal.ID, recipientType(principal.Role), req.ListingID, req.Condition, threshold, req.NotificationType)
+	respondMarketResult(w, r, priceAlertDTOPtr(alert), err, http.StatusCreated)
+}
+
+func (h *Handlers) PriceAlertSubroutes(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/price-alerts/"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok {
+		platform.Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing principal")
+		return
+	}
+	switch r.Method {
+	case http.MethodPatch:
+		alert, err := h.app.MarketService.TogglePriceAlert(r.Context(), principal.ID, id)
+		respondMarketResult(w, r, priceAlertDTOPtr(alert), err, http.StatusOK)
+	case http.MethodDelete:
+		err := h.app.MarketService.DeletePriceAlert(r.Context(), principal.ID, id)
+		respondMarketResult(w, r, nil, err, http.StatusNoContent)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (h *Handlers) ListWatchlists(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok {
+		platform.Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing principal")
+		return
+	}
+	items, err := h.app.MarketService.ListWatchlists(r.Context(), principal.ID)
+	if err != nil {
+		platform.StockError(w, r, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	out := make([]watchlistResponse, 0, len(items))
+	for _, item := range items {
+		out = append(out, watchlistDTO(item))
+	}
+	platform.JSON(w, http.StatusOK, out)
+}
+
+func (h *Handlers) CreateWatchlist(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok {
+		platform.Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing principal")
+		return
+	}
+	var req createWatchlistRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		platform.StockError(w, r, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	item, err := h.app.MarketService.CreateWatchlist(r.Context(), principal.ID, req.Name)
+	respondMarketResult(w, r, watchlistDTOPtr(item), err, http.StatusCreated)
+}
+
+func (h *Handlers) WatchlistSubroutes(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/watchlists/")
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		http.NotFound(w, r)
+		return
+	}
+	watchlistID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok {
+		platform.Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing principal")
+		return
+	}
+	if len(parts) == 1 && r.Method == http.MethodDelete {
+		respondMarketResult(w, r, nil, h.app.MarketService.DeleteWatchlist(r.Context(), principal.ID, watchlistID), http.StatusNoContent)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "items" && r.Method == http.MethodGet {
+		filter, ok := parseListingTypeFilter(w, r)
+		if !ok {
+			return
+		}
+		items, err := h.app.MarketService.ListWatchlistItems(r.Context(), principal.ID, watchlistID, filter)
+		if err != nil {
+			respondMarketResult(w, r, nil, err, http.StatusOK)
+			return
+		}
+		out := make([]watchlistItemResponse, 0, len(items))
+		for _, item := range items {
+			out = append(out, watchlistItemDTO(item))
+		}
+		platform.JSON(w, http.StatusOK, out)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "items" && r.Method == http.MethodPost {
+		var req addWatchlistItemRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			platform.StockError(w, r, http.StatusBadRequest, "Invalid JSON body")
+			return
+		}
+		item, err := h.app.MarketService.AddWatchlistItem(r.Context(), principal.ID, watchlistID, req.ListingID)
+		respondMarketResult(w, r, watchlistItemDTOPtr(item), err, http.StatusCreated)
+		return
+	}
+	if len(parts) == 3 && parts[1] == "items" && r.Method == http.MethodDelete {
+		itemID, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		respondMarketResult(w, r, nil, h.app.MarketService.RemoveWatchlistItem(r.Context(), principal.ID, watchlistID, itemID), http.StatusNoContent)
+		return
+	}
+	http.NotFound(w, r)
+}
+
+func (h *Handlers) DividendData(w http.ResponseWriter, r *http.Request) {
+	items, err := h.app.MarketService.ListDividendData(r.Context())
+	if err != nil {
+		platform.StockError(w, r, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	out := make([]dividendDataResponse, 0, len(items))
+	for _, item := range items {
+		out = append(out, dividendDataDTO(item))
+	}
+	platform.JSON(w, http.StatusOK, out)
+}
+
 func defaultString(value, fallback string) string {
 	if value == "" {
 		return fallback
@@ -433,4 +671,156 @@ func respondFXError(w http.ResponseWriter, err error) {
 	default:
 		platform.ExchangeError(w, http.StatusBadRequest, "ERR_VALIDATION", "Validation error", message, nil)
 	}
+}
+
+func respondMarketResult(w http.ResponseWriter, r *http.Request, value any, err error, status int) {
+	if err != nil {
+		switch {
+		case errors.Is(err, market.ErrBadRequest):
+			platform.StockError(w, r, http.StatusBadRequest, "Invalid request")
+		case errors.Is(err, market.ErrNotFound):
+			platform.StockError(w, r, http.StatusNotFound, "Resource was not found.")
+		case errors.Is(err, market.ErrConflict):
+			platform.StockError(w, r, http.StatusConflict, "Resource already exists.")
+		default:
+			platform.StockError(w, r, http.StatusInternalServerError, "Internal server error")
+		}
+		return
+	}
+	if status == http.StatusNoContent {
+		w.WriteHeader(status)
+		return
+	}
+	platform.JSON(w, status, value)
+}
+
+func recipientType(role string) string {
+	if strings.HasPrefix(role, "CLIENT") || strings.HasPrefix(role, "ROLE_CLIENT") {
+		return "CLIENT"
+	}
+	return "EMPLOYEE"
+}
+
+func rawJSONScalar(raw json.RawMessage) (string, bool) {
+	text := strings.TrimSpace(string(raw))
+	if text == "" || text == "null" {
+		return "", false
+	}
+	if strings.HasPrefix(text, "\"") {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return "", false
+		}
+		return strings.TrimSpace(value), strings.TrimSpace(value) != ""
+	}
+	return text, true
+}
+
+func priceAlertDTOPtr(alert *market.PriceAlert) any {
+	if alert == nil {
+		return nil
+	}
+	dto := priceAlertDTO(*alert)
+	return dto
+}
+
+func priceAlertDTO(alert market.PriceAlert) priceAlertResponse {
+	var last *string
+	if alert.LastTriggeredAt != nil {
+		value := formatLocalDateTime(*alert.LastTriggeredAt)
+		last = &value
+	}
+	return priceAlertResponse{
+		ID:               alert.ID,
+		UserID:           alert.UserID,
+		RecipientType:    alert.RecipientType,
+		ListingID:        alert.ListingID,
+		Condition:        alert.Condition,
+		Threshold:        dec(alert.Threshold),
+		NotificationType: alert.NotificationType,
+		Active:           alert.Active,
+		CreatedAt:        formatLocalDateTime(alert.CreatedAt),
+		LastTriggeredAt:  last,
+	}
+}
+
+func watchlistDTOPtr(item *market.Watchlist) any {
+	if item == nil {
+		return nil
+	}
+	dto := watchlistDTO(*item)
+	return dto
+}
+
+func watchlistDTO(item market.Watchlist) watchlistResponse {
+	return watchlistResponse{
+		ID:        item.ID,
+		UserID:    item.UserID,
+		Name:      item.Name,
+		ItemCount: item.ItemCount,
+		CreatedAt: formatLocalDateTime(item.CreatedAt),
+	}
+}
+
+func watchlistItemDTOPtr(item *market.WatchlistItem) any {
+	if item == nil {
+		return nil
+	}
+	dto := watchlistItemDTO(*item)
+	return dto
+}
+
+func watchlistItemDTO(item market.WatchlistItem) watchlistItemResponse {
+	return watchlistItemResponse{
+		ID:          item.ID,
+		WatchlistID: item.WatchlistID,
+		ListingID:   item.ListingID,
+		Ticker:      item.Listing.Ticker,
+		Name:        item.Listing.Name,
+		Price:       dec(item.Listing.Price),
+		Change:      dec(item.Listing.Change),
+		Volume:      item.Listing.Volume,
+		ListingType: item.Listing.ListingType,
+		AddedAt:     formatLocalDateTime(item.AddedAt),
+	}
+}
+
+func dividendDataDTO(item market.DividendData) dividendDataResponse {
+	return dividendDataResponse{
+		ListingID:     item.ListingID,
+		Ticker:        item.Ticker,
+		Price:         dec(item.Price),
+		Currency:      item.Currency,
+		DividendYield: decDefault(item.DividendYield),
+	}
+}
+
+func parseListingTypeFilter(w http.ResponseWriter, r *http.Request) (*market.ListingType, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("listingType"))
+	if raw == "" {
+		return nil, true
+	}
+	value := market.ListingType(strings.ToUpper(raw))
+	switch value {
+	case market.ListingTypeStock, market.ListingTypeFutures, market.ListingTypeForex, market.ListingTypeOption:
+		return &value, true
+	default:
+		platform.StockError(w, r, http.StatusBadRequest, "Unsupported listingType")
+		return nil, false
+	}
+}
+
+func dec(value string) decimal.Decimal {
+	return decimal.RequireFromString(value)
+}
+
+func decDefault(value string) decimal.Decimal {
+	if strings.TrimSpace(value) == "" {
+		return decimal.Zero
+	}
+	return decimal.RequireFromString(value)
+}
+
+func formatLocalDateTime(value time.Time) string {
+	return value.UTC().Format("2006-01-02T15:04:05")
 }

@@ -23,6 +23,7 @@ type EmailNotification struct {
 // envelope wrapping).
 type NotificationPublisher interface {
 	PublishEmail(ctx context.Context, routingKey string, payload EmailNotification) error
+	Publish(ctx context.Context, routingKey string, payload any) error
 	Close()
 }
 
@@ -53,6 +54,10 @@ func NewRabbitPublisher(ctx context.Context, cfg Config, logger *slog.Logger) (N
 }
 
 func (p *rabbitPublisher) PublishEmail(ctx context.Context, routingKey string, payload EmailNotification) error {
+	return p.pub.Publish(ctx, routingKey, payload)
+}
+
+func (p *rabbitPublisher) Publish(ctx context.Context, routingKey string, payload any) error {
 	return p.pub.Publish(ctx, routingKey, payload)
 }
 

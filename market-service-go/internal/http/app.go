@@ -20,6 +20,7 @@ type App struct {
 	MarketService  *market.Service
 	FXService      *fx.Service
 	PriceFeed      *market.PriceFeedService
+	EventPublisher platform.EventPublisher
 	schedulerClose func()
 }
 
@@ -29,14 +30,20 @@ func NewApp(ctx context.Context, cfg platform.Config, db *pgxpool.Pool, logger *
 	fxService := fx.NewService(cfg, fxRepo)
 	marketService := market.NewService(cfg, marketRepo, fxService, logger)
 	priceFeed := market.NewPriceFeedService(cfg, logger)
+	eventPublisher, err := platform.NewRabbitPublisher(ctx, logger)
+	if err != nil {
+		return nil, err
+	}
+	marketService.SetPriceAlertPublisher(market.NewRabbitPriceAlertPublisher(eventPublisher))
 	app := &App{
-		Config:        cfg,
-		Logger:        logger,
-		MarketRepo:    marketRepo,
-		FXRepo:        fxRepo,
-		MarketService: marketService,
-		FXService:     fxService,
-		PriceFeed:     priceFeed,
+		Config:         cfg,
+		Logger:         logger,
+		MarketRepo:     marketRepo,
+		FXRepo:         fxRepo,
+		MarketService:  marketService,
+		FXService:      fxService,
+		PriceFeed:      priceFeed,
+		EventPublisher: eventPublisher,
 	}
 	scheduler := cron.New(cron.WithSeconds())
 	if cfg.Stock.RefreshEnabled {
@@ -81,5 +88,8 @@ func NewApp(ctx context.Context, cfg platform.Config, db *pgxpool.Pool, logger *
 func (a *App) Close() {
 	if a.schedulerClose != nil {
 		a.schedulerClose()
+	}
+	if a.EventPublisher != nil {
+		a.EventPublisher.Close()
 	}
 }

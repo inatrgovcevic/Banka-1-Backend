@@ -3,7 +3,10 @@ package user
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,6 +24,16 @@ type Service struct {
 	pub   platform.NotificationPublisher
 	cfg   platform.UserConfig
 	email platform.EmailConfig
+}
+
+type auditEvent struct {
+	ActorID    *int64 `json:"actorId"`
+	ActorName  string `json:"actorName"`
+	ActionType string `json:"actionType"`
+	TargetType string `json:"targetType"`
+	TargetID   string `json:"targetId"`
+	Details    string `json:"details"`
+	Timestamp  int64  `json:"timestamp"`
 }
 
 func NewService(repo *Repository, auth *platform.JWTService, pub platform.NotificationPublisher, cfg platform.UserConfig, email platform.EmailConfig) *Service {
@@ -270,6 +283,7 @@ func (s *Service) UpdateEmployee(ctx context.Context, id int64, req EmployeeUpda
 	if err != nil {
 		return EmployeeResponse{}, err
 	}
+	permissionsBefore := s.repo.EmployeePermissions(ctx, current.ID, current.Role)
 	if principal, ok := platform.PrincipalFromContext(ctx); ok &&
 		principal.Role == "ADMIN" &&
 		current.Role == "ADMIN" &&
@@ -290,6 +304,7 @@ func (s *Service) UpdateEmployee(ctx context.Context, id int64, req EmployeeUpda
 		}
 	}
 	employee.Permissions = s.repo.EmployeePermissions(ctx, employee.ID, employee.Role)
+	s.publishPermissionAuditIfChanged(ctx, employee, permissionsBefore, employee.Permissions)
 	if req.Aktivan != nil && !*req.Aktivan {
 		_ = s.publishEmail(ctx, "employee.account_deactivated", "EMPLOYEE_ACCOUNT_DEACTIVATED", employee.Ime, employee.Email, "")
 	}
@@ -520,4 +535,53 @@ func (s *Service) publishEmail(ctx context.Context, routingKey, emailType, usern
 		EmailType:         emailType,
 		TemplateVariables: vars,
 	})
+}
+
+func (s *Service) publishPermissionAuditIfChanged(ctx context.Context, employee Employee, before, after []string) {
+	if s.pub == nil {
+		return
+	}
+	beforeSorted := sortedUnique(before)
+	afterSorted := sortedUnique(after)
+	if strings.Join(beforeSorted, ",") == strings.Join(afterSorted, ",") {
+		return
+	}
+	var actorID *int64
+	actorName := "SYSTEM"
+	if principal, ok := platform.PrincipalFromContext(ctx); ok {
+		id := principal.ID
+		actorID = &id
+		actorName = strings.TrimSpace(principal.Email)
+		if actorName == "" {
+			actorName = fmt.Sprintf("USER_%d", principal.ID)
+		}
+	}
+	event := auditEvent{
+		ActorID:    actorID,
+		ActorName:  actorName,
+		ActionType: "EMPLOYEE_PERMISSIONS_CHANGED",
+		TargetType: "EMPLOYEE",
+		TargetID:   fmt.Sprintf("%d", employee.ID),
+		Details:    "Permisije promenjene: " + fmt.Sprint(beforeSorted) + " -> " + fmt.Sprint(afterSorted),
+		Timestamp:  time.Now().UnixMilli(),
+	}
+	if err := s.pub.Publish(ctx, "audit.employee_permissions_changed", event); err != nil {
+		slog.Default().Error("audit publish failed", "routingKey", "audit.employee_permissions_changed", "error", err)
+	}
+}
+
+func sortedUnique(values []string) []string {
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			seen[value] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for value := range seen {
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
