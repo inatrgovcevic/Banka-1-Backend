@@ -80,6 +80,8 @@ type AccountResponse struct {
 }
 
 type AccountSearchResponse struct {
+	ID                   int64           `json:"id"`
+	AccountID            int64           `json:"accountId"`
 	BrojRacuna           string          `json:"brojRacuna"`
 	Ime                  string          `json:"ime"`
 	Prezime              string          `json:"prezime"`
@@ -427,7 +429,7 @@ SELECT COUNT(*)
 		return Page[AccountSearchResponse]{}, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT a.broj_racuna, a.ime_vlasnika_racuna, a.prezime_vlasnika_racuna,
+SELECT a.id, a.broj_racuna, a.ime_vlasnika_racuna, a.prezime_vlasnika_racuna,
        COALESCE(a.account_ownership_type, ''), a.account_type, a.stanje,
        a.raspolozivo_stanje, COALESCE(c.oznaka, ''), a.status,
        a.vlasnik, a.zaposlen, COALESCE(a.dnevni_limit, 0),

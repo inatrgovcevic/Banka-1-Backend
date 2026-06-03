@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -180,7 +181,7 @@ func (s *Service) ProfitByActuary(ctx context.Context, from, to *time.Time) ([]a
 	if err != nil {
 		return nil, err
 	}
-	out := make([]api.ActuaryProfitDto, 0, len(rows))
+	byUser := make(map[int64]api.ActuaryProfitDto, len(rows))
 	for _, row := range rows {
 		dto := api.ActuaryProfitDto{
 			UserID:           row.UserID,
@@ -193,8 +194,46 @@ func (s *Service) ProfitByActuary(ctx context.Context, from, to *time.Time) ([]a
 			dto.Prezime = emp.Prezime
 			dto.Pozicija = emp.Pozicija
 		}
+		byUser[row.UserID] = dto
+	}
+
+	for page := 0; ; page++ {
+		employees, err := s.employees.SearchEmployees(ctx, nil, nil, nil, nil, page, employeePageSize)
+		if err != nil {
+			break
+		}
+		for _, emp := range employees.Content {
+			if !roleMatches(emp.Role, "AGENT") && !roleMatches(emp.Role, "SUPERVISOR") {
+				continue
+			}
+			if _, ok := byUser[emp.ID]; ok {
+				continue
+			}
+			byUser[emp.ID] = api.ActuaryProfitDto{
+				UserID:           emp.ID,
+				TotalCommission:  decimal.Zero,
+				TransactionCount: 0,
+				Ime:              emp.Ime,
+				Prezime:          emp.Prezime,
+				Pozicija:         emp.Pozicija,
+			}
+		}
+		if len(employees.Content) == 0 || page+1 >= employees.TotalPages {
+			break
+		}
+	}
+
+	out := make([]api.ActuaryProfitDto, 0, len(byUser))
+	for _, dto := range byUser {
 		out = append(out, dto)
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		cmp := out[i].TotalCommission.Cmp(out[j].TotalCommission)
+		if cmp != 0 {
+			return cmp > 0
+		}
+		return out[i].UserID < out[j].UserID
+	})
 	return out, nil
 }
 

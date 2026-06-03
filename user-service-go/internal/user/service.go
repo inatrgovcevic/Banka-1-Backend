@@ -1,10 +1,13 @@
 package user
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"regexp"
 	"sort"
 	"strings"
@@ -23,6 +26,7 @@ type Service struct {
 	auth  *platform.JWTService
 	pub   platform.NotificationPublisher
 	cfg   platform.UserConfig
+	svc   platform.ServicesConfig
 	email platform.EmailConfig
 }
 
@@ -36,8 +40,8 @@ type auditEvent struct {
 	Timestamp  int64  `json:"timestamp"`
 }
 
-func NewService(repo *Repository, auth *platform.JWTService, pub platform.NotificationPublisher, cfg platform.UserConfig, email platform.EmailConfig) *Service {
-	return &Service{repo: repo, auth: auth, pub: pub, cfg: cfg, email: email}
+func NewService(repo *Repository, auth *platform.JWTService, pub platform.NotificationPublisher, cfg platform.UserConfig, svc platform.ServicesConfig, email platform.EmailConfig) *Service {
+	return &Service{repo: repo, auth: auth, pub: pub, cfg: cfg, svc: svc, email: email}
 }
 
 func (s *Service) EmployeeLogin(ctx context.Context, req LoginRequest) (TokenResponse, error) {
@@ -54,6 +58,9 @@ func (s *Service) EmployeeLogin(ctx context.Context, req LoginRequest) (TokenRes
 	}
 	if employee.PasswordHash == nil || !platform.VerifyPassword(req.Password, *employee.PasswordHash) {
 		_ = s.repo.RegisterFailedEmployeeLogin(ctx, employee, s.cfg.EmployeeLockoutAttempts, s.cfg.EmployeeLockoutDuration)
+		if employee.FailedLoginAttempts+1 >= s.cfg.EmployeeLockoutAttempts {
+			return TokenResponse{}, ErrLockedAccount
+		}
 		return TokenResponse{}, ErrInvalidLogin
 	}
 	permissions := s.repo.EmployeePermissions(ctx, employee.ID, employee.Role)
@@ -306,7 +313,11 @@ func (s *Service) UpdateEmployee(ctx context.Context, id int64, req EmployeeUpda
 	employee.Permissions = s.repo.EmployeePermissions(ctx, employee.ID, employee.Role)
 	s.publishPermissionAuditIfChanged(ctx, employee, permissionsBefore, employee.Permissions)
 	if req.Aktivan != nil && !*req.Aktivan {
+		s.reassignFundsIfSupervisorRemoved(ctx, current)
 		_ = s.publishEmail(ctx, "employee.account_deactivated", "EMPLOYEE_ACCOUNT_DEACTIVATED", employee.Ime, employee.Email, "")
+	}
+	if req.Role != nil && strings.EqualFold(current.Role, "SUPERVISOR") && !strings.EqualFold(employee.Role, "SUPERVISOR") {
+		s.reassignFundsIfSupervisorRemoved(ctx, current)
 	}
 	return employeeDTO(employee), nil
 }
@@ -317,7 +328,52 @@ func (s *Service) DeleteEmployee(ctx context.Context, id int64) error {
 		return err
 	}
 	if employee.ID != 0 {
+		s.reassignFundsIfSupervisorRemoved(ctx, employee)
 		_ = s.publishEmail(ctx, "employee.account_deactivated", "EMPLOYEE_ACCOUNT_DEACTIVATED", employee.Ime, employee.Email, "")
+	}
+	return nil
+}
+
+func (s *Service) reassignFundsIfSupervisorRemoved(ctx context.Context, employee Employee) {
+	if !strings.EqualFold(employee.Role, "SUPERVISOR") {
+		return
+	}
+	replacementID, err := s.repo.FirstActiveEmployeeIDByRoleExcluding(ctx, "SUPERVISOR", employee.ID)
+	if err != nil || replacementID == 0 {
+		slog.Warn("fund manager reassign skipped: no active replacement supervisor", "oldManagerId", employee.ID, "error", err)
+		return
+	}
+	if err := s.callFundManagerReassign(ctx, employee.ID, replacementID); err != nil {
+		slog.Warn("fund manager reassign failed", "oldManagerId", employee.ID, "newManagerId", replacementID, "error", err)
+	}
+}
+
+func (s *Service) callFundManagerReassign(ctx context.Context, oldManagerID, newManagerID int64) error {
+	token, err := s.auth.GenerateAccessToken(0, "user-service@banka.local", "SERVICE", []string{})
+	if err != nil {
+		return err
+	}
+	body, err := json.Marshal(map[string]int64{
+		"oldManagerId": oldManagerID,
+		"newManagerId": newManagerID,
+	})
+	if err != nil {
+		return err
+	}
+	url := strings.TrimRight(s.svc.TradingURL, "/") + "/funds/admin/reassign-manager"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("trading reassign returned status %d", resp.StatusCode)
 	}
 	return nil
 }
@@ -334,6 +390,10 @@ func (s *Service) SearchClients(ctx context.Context, query SearchQuery) (PageRes
 		content = append(content, clientDTO(client))
 	}
 	return page(content, total, query.Page, query.Size), nil
+}
+
+func (s *Service) OTCTradingClientIDs(ctx context.Context) ([]int64, error) {
+	return s.repo.OTCTradingClientIDs(ctx)
 }
 
 func (s *Service) GetClientInfo(ctx context.Context, id int64, principal platform.Principal) (ClientInfoResponse, error) {

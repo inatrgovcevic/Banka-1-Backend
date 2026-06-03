@@ -326,10 +326,8 @@ func (h *Handlers) interbankUserDisplay(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handlers) actuaryClientIDs(w http.ResponseWriter, r *http.Request) {
-	// Compatibility endpoint for OTC callers. The Java controller currently serves
-	// as a narrow adapter; returning an empty list is safe until the exact actuary
-	// assignment source is ported from trading/order logic.
-	platform.JSON(w, http.StatusOK, []int64{})
+	ids, err := h.service.OTCTradingClientIDs(r.Context())
+	writeResult(w, ids, err, http.StatusOK)
 }
 
 func decode(w http.ResponseWriter, r *http.Request, dst any) bool {

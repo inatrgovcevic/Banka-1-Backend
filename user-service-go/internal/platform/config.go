@@ -13,6 +13,7 @@ type Config struct {
 	DB         DBConfig
 	JWT        JWTConfig
 	User       UserConfig
+	Services   ServicesConfig
 	CORS       CORSConfig
 	RabbitMQ   RabbitConfig
 	Email      EmailConfig
@@ -42,6 +43,10 @@ type UserConfig struct {
 	RefreshTokenDuration      time.Duration
 	EmployeeLockoutAttempts   int
 	EmployeeLockoutDuration   time.Duration
+}
+
+type ServicesConfig struct {
+	TradingURL string
 }
 
 type CORSConfig struct {
@@ -90,8 +95,11 @@ func LoadConfig() Config {
 		User: UserConfig{
 			ConfirmationTokenDuration: time.Duration(envInt("TOKEN_CONFIRMATION_EXPIRATION_MINUTES", 15)) * time.Minute,
 			RefreshTokenDuration:      time.Duration(envInt("TOKEN_REFRESH_EXPIRATION_DAYS", 7)) * 24 * time.Hour,
-			EmployeeLockoutAttempts:   envInt("ACCOUNT_LOCKOUT_MAX_ATTEMPTS", 4),
+			EmployeeLockoutAttempts:   envInt("ACCOUNT_LOCKOUT_MAX_ATTEMPTS", 5),
 			EmployeeLockoutDuration:   time.Duration(envInt("ACCOUNT_LOCKOUT_DURATION_MINUTES", 10)) * time.Minute,
+		},
+		Services: ServicesConfig{
+			TradingURL: env("SERVICES_TRADING_URL", "http://trading-service:8088"),
 		},
 		CORS: CORSConfig{
 			AllowedOrigins: splitEnv("BANKA_SECURITY_CORS_ALLOWED_ORIGINS", "http://localhost:4200,http://localhost:3000"),

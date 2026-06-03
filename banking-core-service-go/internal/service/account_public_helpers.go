@@ -241,6 +241,7 @@ func scanAccountSearch(row rowScanner) (AccountSearchResponse, error) {
 	var ownership, accountType string
 	var expires sql.NullTime
 	if err := row.Scan(
+		&out.ID,
 		&out.BrojRacuna,
 		&out.Ime,
 		&out.Prezime,
@@ -260,6 +261,7 @@ func scanAccountSearch(row rowScanner) (AccountSearchResponse, error) {
 	); err != nil {
 		return AccountSearchResponse{}, err
 	}
+	out.AccountID = out.ID
 	out.RezervisanaSredstva = out.Stanje.Sub(out.RaspolozivoStanje)
 	out.AccountOwnershipType = strings.ToUpper(ownership)
 	out.IsSystemAccount = out.Vlasnik < 0

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"banka1/trading-service-go/internal/api"
@@ -409,7 +410,7 @@ func (s *Service) investImpl(ctx context.Context, fundID, clientID int64, amount
 	// publish-after-commit (best-effort) — mirrors Java
 	// TransactionSynchronizationManager.afterCommit.
 	if err := s.publisher.PublishSubscribeRequested(ctx, FundSubscribeRequestedEvent{
-		TransactionID:     saved.ID,
+		TransactionID:     strconv.FormatInt(saved.ID, 10),
 		ClientID:          saved.ClientID,
 		FundID:            saved.FundID,
 		Amount:            saved.Amount,
@@ -488,7 +489,7 @@ func (s *Service) redeemImpl(ctx context.Context, fundID, clientID int64, amount
 		return nil, err
 	}
 	if err := s.publisher.PublishRedeemRequested(ctx, FundRedeemRequestedEvent{
-		TransactionID:     saved.ID,
+		TransactionID:     strconv.FormatInt(saved.ID, 10),
 		ClientID:          saved.ClientID,
 		FundID:            saved.FundID,
 		Amount:            saved.Amount,

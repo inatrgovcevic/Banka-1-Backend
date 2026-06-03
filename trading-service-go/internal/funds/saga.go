@@ -178,7 +178,7 @@ func buildSagaHandler(svc *Service, b consumerBinding, logger *slog.Logger) rabb
 			logger.Error("fund saga: decode failed", "queue", b.queue, "error", err)
 			return rabbitmq.Reject
 		}
-		txID := int64Or(evt.TransactionID, 0)
+		txID := flexibleInt64Or(evt.TransactionID, 0)
 		if txID == 0 {
 			logger.Warn("fund saga: missing transactionId — skip", "queue", b.queue, "key", raw.RoutingKey)
 			return rabbitmq.Ack
@@ -234,4 +234,11 @@ func int64Or(p *int64, def int64) int64 {
 		return def
 	}
 	return *p
+}
+
+func flexibleInt64Or(p *FlexibleInt64, def int64) int64 {
+	if p == nil {
+		return def
+	}
+	return p.Int64()
 }
