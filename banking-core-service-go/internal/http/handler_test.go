@@ -147,6 +147,16 @@ func TestActuatorEndpointsOpenWithoutAuth(t *testing.T) {
 	}
 }
 
+func TestInternalAccountByOwnerCurrencyRejectsInvalidPathWithoutAuth(t *testing.T) {
+	h := testHandler()
+	req := httptest.NewRequest(http.MethodGet, "/accounts/internal/by-owner/5/currency", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400\nbody: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // ── 404 on completely unknown paths ─────────────────────────────────────────
 
 func TestServeHTTPNotFoundForUnknownPaths(t *testing.T) {
@@ -194,6 +204,7 @@ func TestIsKnownPathMatchesPrefixRoutes(t *testing.T) {
 		"/transactions/addToMargin/7",
 		"/transfers/ORDER-001",
 		"/internal/accounts/ACC123/details",
+		"/accounts/internal/by-owner/5/currency/USD",
 	}
 	for _, p := range known {
 		if !isKnownPath(p) {

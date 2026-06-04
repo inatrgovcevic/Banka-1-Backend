@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"banka1/trading-service-go/internal/api"
+	"banka1/trading-service-go/internal/clients"
 
 	gpauth "banka1/go-platform/auth"
 	"banka1/go-platform/httpx"
@@ -178,17 +179,80 @@ func (h *Handlers) AuditLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	out := make([]map[string]any, 0)
+
+	type auditRow struct {
+		id         int64
+		actorID    *int64
+		actorRole  *string
+		actionType *string
+		targetType *string
+		targetID   *string
+		oldValue   *string
+		newValue   *string
+		createdAt  time.Time
+	}
+	var rawRows []auditRow
 	for rows.Next() {
-		var id int64
-		var actorID *int64
-		var actorRole, actionType, targetType, targetID, oldValue, newValue *string
-		var createdAt time.Time
-		if err := rows.Scan(&id, &actorID, &actorRole, &actionType, &targetType, &targetID, &oldValue, &newValue, &createdAt); err != nil {
+		var row auditRow
+		if err := rows.Scan(&row.id, &row.actorID, &row.actorRole, &row.actionType, &row.targetType, &row.targetID, &row.oldValue, &row.newValue, &row.createdAt); err != nil {
 			writeDomainError(w, r, err)
 			return
 		}
-		out = append(out, map[string]any{"id": id, "actorId": actorID, "actorRole": actorRole, "actionType": actionType, "targetType": targetType, "targetId": targetID, "oldValue": oldValue, "newValue": newValue, "createdAt": createdAt})
+		rawRows = append(rawRows, row)
+	}
+	rows.Close()
+
+	// Collect unique employee IDs to resolve (actor + target when numeric).
+	empCtx := clients.WithCallerAuth(r.Context(), r.Header.Get("Authorization"))
+	nameCache := map[int64]string{}
+	resolveName := func(id int64) string {
+		if n, ok := nameCache[id]; ok {
+			return n
+		}
+		emp, err := h.app.Employees.GetEmployee(empCtx, id)
+		name := strconv.FormatInt(id, 10)
+		if err == nil && emp != nil {
+			parts := []string{}
+			if emp.Ime != nil {
+				parts = append(parts, *emp.Ime)
+			}
+			if emp.Prezime != nil {
+				parts = append(parts, *emp.Prezime)
+			}
+			if len(parts) > 0 {
+				name = strings.Join(parts, " ")
+			}
+		}
+		nameCache[id] = name
+		return name
+	}
+
+	out := make([]map[string]any, 0, len(rawRows))
+	for _, row := range rawRows {
+		entry := map[string]any{
+			"id":         row.id,
+			"actorRole":  row.actorRole,
+			"actionType": row.actionType,
+			"targetType": row.targetType,
+			"oldValue":   row.oldValue,
+			"newValue":   row.newValue,
+			"createdAt":  row.createdAt,
+		}
+		if row.actorID != nil {
+			entry["actorName"] = resolveName(*row.actorID)
+		} else {
+			entry["actorName"] = nil
+		}
+		if row.targetID != nil {
+			if id, err := strconv.ParseInt(*row.targetID, 10, 64); err == nil {
+				entry["targetName"] = resolveName(id)
+			} else {
+				entry["targetName"] = *row.targetID
+			}
+		} else {
+			entry["targetName"] = nil
+		}
+		out = append(out, entry)
 	}
 	httpx.JSON(w, http.StatusOK, out)
 }

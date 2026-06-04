@@ -245,23 +245,33 @@ func (s *LoanService) FindClientLoans(
 	user auth.User,
 	page int,
 	size int,
-) (dto.PageResponse[dto.LoanSummaryResponseDTO], error) {
+) (dto.PageResponse[dto.LoanResponseDTO], error) {
 	loans, total, err := s.loanStore.FindByClientID(ctx, user.ID, page, size)
 	if err != nil {
-		return dto.PageResponse[dto.LoanSummaryResponseDTO]{}, err
+		return dto.PageResponse[dto.LoanResponseDTO]{}, err
 	}
 
-	responses := make([]dto.LoanSummaryResponseDTO, 0, len(loans))
+	responses := make([]dto.LoanResponseDTO, 0, len(loans))
 	for _, loan := range loans {
-		responses = append(responses, dto.LoanSummaryResponseDTO{
-			LoanNumber: loan.ID,
-			LoanType:   loan.LoanType,
-			Amount:     loan.Amount,
-			Status:     loan.Status,
+		responses = append(responses, dto.LoanResponseDTO{
+			LoanNumber:            loan.ID,
+			LoanType:              loan.LoanType,
+			AccountNumber:         loan.AccountNumber,
+			Amount:                loan.Amount,
+			RepaymentMethod:       loan.RepaymentPeriod,
+			NominalInterestRate:   loan.NominalInterestRate,
+			EffectiveInterestRate: loan.EffectiveInterestRate,
+			InterestType:          loan.InterestType,
+			AgreementDate:         loan.AgreementDate,
+			MaturityDate:          loan.MaturityDate,
+			InstallmentAmount:     loan.InstallmentAmount,
+			NextInstallmentDate:   loan.NextInstallmentDate,
+			RemainingDebt:         loan.RemainingDebt,
+			Status:                loan.Status,
 		})
 	}
 
-	return dto.PageResponse[dto.LoanSummaryResponseDTO]{
+	return dto.PageResponse[dto.LoanResponseDTO]{
 		Content:       responses,
 		Page:          page,
 		Size:          size,

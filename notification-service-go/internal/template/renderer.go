@@ -1,11 +1,14 @@
 package template
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"Banka1Back/notification-service-go/internal/model"
 )
+
+var ErrEmailRequired = errors.New("recipientEmail is required")
 
 // ResolvedEmail is the rendered, SMTP-ready email produced by the Renderer.
 type ResolvedEmail struct {
@@ -33,9 +36,23 @@ func (r *Renderer) Resolve(
 	templateVars map[string]string,
 ) (*ResolvedEmail, error) {
 	if strings.TrimSpace(recipientEmail) == "" {
-		return nil, fmt.Errorf("ERR_NOTIFICATION_003: recipientEmail is required")
+		return nil, fmt.Errorf("ERR_NOTIFICATION_003: %w", ErrEmailRequired)
 	}
 
+	return r.ResolveTemplates(notificationType, recipientEmail, username, templateVars)
+}
+
+// ResolveTemplates renders the subject and body templates without requiring
+// a recipient email. Use this for push-only notifications where email is
+// optional and the rendered content is needed for FCM payloads.
+//
+// Returns a ResolvedEmail with empty RecipientEmail when recipientEmail is empty.
+func (r *Renderer) ResolveTemplates(
+	notificationType model.NotificationType,
+	recipientEmail string,
+	username string,
+	templateVars map[string]string,
+) (*ResolvedEmail, error) {
 	tmpl, err := r.registry.Resolve(notificationType)
 	if err != nil {
 		return nil, err

@@ -55,12 +55,19 @@ func (d *Dispatcher) Handle(
 	}
 
 	if err := req.Validate(); err != nil {
-		d.log.Error("invalid notification payload — discarding message",
-			"routing_key", routingKey,
-			"notification_type", notificationType,
-			"error", err,
-		)
-		return fmt.Errorf("payload validation failed for key %q: %w", routingKey, err)
+		if model.IsPushOnlyNotificationType(notificationType) {
+			d.log.Debug("push-only notification with missing email — passing through",
+				"routing_key", routingKey,
+				"notification_type", notificationType,
+			)
+		} else {
+			d.log.Error("invalid notification payload — discarding message",
+				"routing_key", routingKey,
+				"notification_type", notificationType,
+				"error", err,
+			)
+			return fmt.Errorf("payload validation failed for key %q: %w", routingKey, err)
+		}
 	}
 
 	d.log.Debug("dispatching notification message",

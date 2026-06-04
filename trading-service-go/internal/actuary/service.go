@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -93,7 +94,7 @@ func (s *Service) GetAgents(ctx context.Context, email, ime, prezime, pozicija *
 
 // SetLimit sets an agent's daily limit. limit is already bean-validated (>0,
 // non-null) by the handler. Mirrors ActuaryServiceImpl.setLimit.
-func (s *Service) SetLimit(ctx context.Context, employeeID int64, limit decimal.Decimal) error {
+func (s *Service) SetLimit(ctx context.Context, actorID int64, actorRole string, employeeID int64, limit decimal.Decimal) error {
 	emp, err := s.fetchEmployeeOrNotFound(ctx, employeeID)
 	if err != nil {
 		return err
@@ -111,11 +112,19 @@ func (s *Service) SetLimit(ctx context.Context, employeeID int64, limit decimal.
 	if limit.LessThan(info.UsedLimit) {
 		return api.NewOtcError(404, "Limit cannot be lower than the current used limit of "+info.UsedLimit.String()+".")
 	}
-	return s.repo.UpdateLimit(ctx, employeeID, limit)
+	oldValue := ""
+	if info.Limit != nil {
+		oldValue = info.Limit.String()
+	}
+	if err := s.repo.UpdateLimit(ctx, employeeID, limit); err != nil {
+		return err
+	}
+	_ = s.repo.InsertAuditLog(ctx, actorID, actorRole, "SET_LIMIT", "actuary_info", fmt.Sprintf("%d", employeeID), oldValue, limit.String())
+	return nil
 }
 
 // ResetLimit zeroes an agent's used/reserved limit. Mirrors resetLimit.
-func (s *Service) ResetLimit(ctx context.Context, employeeID int64) error {
+func (s *Service) ResetLimit(ctx context.Context, actorID int64, actorRole string, employeeID int64) error {
 	emp, err := s.fetchEmployeeOrNotFound(ctx, employeeID)
 	if err != nil {
 		return err
@@ -126,7 +135,16 @@ func (s *Service) ResetLimit(ctx context.Context, employeeID int64) error {
 	if !roleMatches(emp.Role, "AGENT") {
 		return api.NewOtcError(404, "Limit can only be reset for employees with the AGENT role.")
 	}
-	return s.repo.ResetLimit(ctx, employeeID)
+	info, _ := s.repo.FindByEmployeeID(ctx, employeeID)
+	oldUsed := "0"
+	if info != nil {
+		oldUsed = info.UsedLimit.String()
+	}
+	if err := s.repo.ResetLimit(ctx, employeeID); err != nil {
+		return err
+	}
+	_ = s.repo.InsertAuditLog(ctx, actorID, actorRole, "RESET_LIMIT", "actuary_info", fmt.Sprintf("%d", employeeID), oldUsed, "0")
+	return nil
 }
 
 // SetNeedApproval toggles an agent's need-approval flag. value is bean-validated
@@ -163,7 +181,7 @@ func (s *Service) ProfitByActuary(ctx context.Context, from, to *time.Time) ([]a
 	if err != nil {
 		return nil, err
 	}
-	out := make([]api.ActuaryProfitDto, 0, len(rows))
+	byUser := make(map[int64]api.ActuaryProfitDto, len(rows))
 	for _, row := range rows {
 		dto := api.ActuaryProfitDto{
 			UserID:           row.UserID,
@@ -176,8 +194,46 @@ func (s *Service) ProfitByActuary(ctx context.Context, from, to *time.Time) ([]a
 			dto.Prezime = emp.Prezime
 			dto.Pozicija = emp.Pozicija
 		}
+		byUser[row.UserID] = dto
+	}
+
+	for page := 0; ; page++ {
+		employees, err := s.employees.SearchEmployees(ctx, nil, nil, nil, nil, page, employeePageSize)
+		if err != nil {
+			break
+		}
+		for _, emp := range employees.Content {
+			if !roleMatches(emp.Role, "AGENT") && !roleMatches(emp.Role, "SUPERVISOR") {
+				continue
+			}
+			if _, ok := byUser[emp.ID]; ok {
+				continue
+			}
+			byUser[emp.ID] = api.ActuaryProfitDto{
+				UserID:           emp.ID,
+				TotalCommission:  decimal.Zero,
+				TransactionCount: 0,
+				Ime:              emp.Ime,
+				Prezime:          emp.Prezime,
+				Pozicija:         emp.Pozicija,
+			}
+		}
+		if len(employees.Content) == 0 || page+1 >= employees.TotalPages {
+			break
+		}
+	}
+
+	out := make([]api.ActuaryProfitDto, 0, len(byUser))
+	for _, dto := range byUser {
 		out = append(out, dto)
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		cmp := out[i].TotalCommission.Cmp(out[j].TotalCommission)
+		if cmp != 0 {
+			return cmp > 0
+		}
+		return out[i].UserID < out[j].UserID
+	})
 	return out, nil
 }
 

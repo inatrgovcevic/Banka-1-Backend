@@ -191,6 +191,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.getMarginUser(w, r, strings.TrimPrefix(path, "/accounts/getMarginUser/"))
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/accounts/company/getMarginCompany/"):
 		h.getMarginCompany(w, r, strings.TrimPrefix(path, "/accounts/company/getMarginCompany/"))
+	case r.Method == http.MethodGet && strings.HasPrefix(path, "/accounts/internal/by-owner/"):
+		h.accountByOwnerAndCurrency(w, r, strings.TrimPrefix(path, "/accounts/internal/by-owner/"))
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/accounts/internal/default/"):
 		h.defaultAccount(w, r, strings.TrimPrefix(path, "/accounts/internal/default/"))
 
@@ -336,6 +338,29 @@ func (h *Handler) defaultAccount(w http.ResponseWriter, r *http.Request, rawID s
 		"ownerId":       strconv.FormatInt(id, 10),
 		"accountNumber": resp.AccountNumber,
 	})
+}
+
+func (h *Handler) accountByOwnerAndCurrency(w http.ResponseWriter, r *http.Request, raw string) {
+	parts := strings.Split(strings.Trim(raw, "/"), "/")
+	if len(parts) != 3 || parts[1] != "currency" || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[2]) == "" {
+		writeError(w, http.StatusBadRequest, "ERR_VALIDATION", "Neispravni podaci", "putanja mora biti /accounts/internal/by-owner/{ownerId}/currency/{currencyCode}")
+		return
+	}
+	id, ok := parseIntPath(w, parts[0])
+	if !ok {
+		return
+	}
+	resp, err := h.services.Accounts.FindByOwnerAndCurrency(r.Context(), id, parts[2])
+	if err != nil {
+		var serviceErr *service.Error
+		if errors.As(err, &serviceErr) && serviceErr.Status == http.StatusNotFound {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		handleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) buyOnMargin(w http.ResponseWriter, r *http.Request) {
@@ -681,6 +706,7 @@ func isKnownPath(path string) bool {
 		"/accounts/client/accounts/",
 		"/accounts/getMarginUser/",
 		"/accounts/company/getMarginCompany/",
+		"/accounts/internal/by-owner/",
 		"/accounts/internal/default/",
 		"/api/cards/client/",
 		"/api/cards/id/",

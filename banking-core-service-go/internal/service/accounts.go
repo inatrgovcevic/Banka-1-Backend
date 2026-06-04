@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
 	"banka1/banking-core-service-go/internal/config"
@@ -42,6 +43,12 @@ type AccountDetails struct {
 	AccountType      string          `json:"accountType,omitempty"`
 	Email            string          `json:"email,omitempty"`
 	Username         string          `json:"username,omitempty"`
+}
+
+type InternalAccountByOwnerCurrencyResponse struct {
+	ID            int64  `json:"id"`
+	AccountNumber string `json:"accountNumber"`
+	Currency      string `json:"currency"`
 }
 
 type accountBalanceRow struct {
@@ -126,6 +133,22 @@ func (s *AccountService) FindDefaultRSDByOwner(ctx context.Context, ownerID int6
 		return AccountDetails{}, err
 	}
 	return row.details(), nil
+}
+
+func (s *AccountService) FindByOwnerAndCurrency(ctx context.Context, ownerID int64, currency string) (InternalAccountByOwnerCurrencyResponse, error) {
+	currency = strings.ToUpper(strings.TrimSpace(currency))
+	if currency == "" {
+		return InternalAccountByOwnerCurrencyResponse{}, BadRequest("currencyCode je obavezan")
+	}
+	row, err := s.getByOwnerAndCurrency(ctx, s.db, ownerID, currency, false)
+	if err != nil {
+		return InternalAccountByOwnerCurrencyResponse{}, err
+	}
+	return InternalAccountByOwnerCurrencyResponse{
+		ID:            row.ID,
+		AccountNumber: row.AccountNumber,
+		Currency:      row.Currency,
+	}, nil
 }
 
 func (s *AccountService) FindClientAccounts(ctx context.Context, ownerID int64) ([]AccountDetails, error) {

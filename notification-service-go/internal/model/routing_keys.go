@@ -47,6 +47,22 @@ var RoutingKeyMap = map[string]NotificationType{
 
 	"transaction.completed": NotificationTypeTransactionCompleted,
 	"transaction.denied":    NotificationTypeTransactionDenied,
+
+	"price.alert_triggered":   NotificationTypePriceAlertTriggered,
+	"order.recurring_skipped": NotificationTypeOrderRecurringSkipped,
+}
+
+// PushOnlyNotificationTypes contains notification types that are mobile-push
+// exclusive and may be produced without a recipient email address.
+var PushOnlyNotificationTypes = map[NotificationType]bool{
+	NotificationTypePriceAlertTriggered:  true,
+	NotificationTypeOrderRecurringSkipped: true,
+}
+
+// IsPushOnlyNotificationType reports whether the given notification type is
+// push-only and may arrive without a recipient email address.
+func IsPushOnlyNotificationType(nt NotificationType) bool {
+	return PushOnlyNotificationTypes[nt]
 }
 
 // ResolveNotificationType returns the NotificationType for a given routing key.

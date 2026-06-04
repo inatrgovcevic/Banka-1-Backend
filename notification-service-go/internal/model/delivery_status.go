@@ -77,6 +77,9 @@ const (
 
 	NotificationTypeTransactionCompleted NotificationType = "TRANSACTION_COMPLETED"
 	NotificationTypeTransactionDenied    NotificationType = "TRANSACTION_DENIED"
+
+	NotificationTypePriceAlertTriggered  NotificationType = "PRICE_ALERT_TRIGGERED"
+	NotificationTypeOrderRecurringSkipped NotificationType = "ORDER_RECURRING_SKIPPED"
 )
 
 // ErrDeliveryNotEligible is returned by MarkProcessing when the target delivery

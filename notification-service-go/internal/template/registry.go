@@ -156,4 +156,12 @@ var defaultTemplates = map[string]EmailTemplate{
 		Subject:      "Plaćanje odbijeno",
 		BodyTemplate: "Zdravo {{name}}, vase placanje nije moglo biti izvrseno.",
 	},
+	"PRICE_ALERT_TRIGGERED": {
+		Subject:      "Cenovni alarm aktiviran",
+		BodyTemplate: "Zdravo {{name}}, cena za {{ticker}} je dostigla {{price}}.",
+	},
+	"ORDER_RECURRING_SKIPPED": {
+		Subject:      "Periodicni nalog preskocen",
+		BodyTemplate: "Zdravo {{name}}, vas periodicni nalog {{orderId}} nije izvrsen. Razlog: {{reason}}.",
+	},
 }

@@ -42,6 +42,7 @@ func TestRouteAuth(t *testing.T) {
 	}{
 		{"GET", "/actuator/health/liveness", authOpen, nil},
 		{"GET", "/accounts/internal/default/5", authOpen, nil},
+		{"GET", "/accounts/internal/by-owner/5/currency/USD", authOpen, nil},
 		{"POST", "/verification/generate", authAuthenticated, nil},
 		{"POST", "/transactions/payment", authRoles, rolesClientBasic},
 		{"GET", "/transactions/by-client", authRoles, rolesBasic},

@@ -4,10 +4,11 @@ import (
 	"context"
 	"net/http"
 
+	"banka1/go-platform/auth"
+	"banka1/go-platform/httpx"
 	"banka1/trading-service-go/internal/api"
 	"banka1/trading-service-go/internal/clients"
 
-	"banka1/go-platform/httpx"
 	"github.com/shopspring/decimal"
 )
 
@@ -53,7 +54,8 @@ func (h *Handlers) ActuarySetLimit(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, api.NewOrderValidation(fields))
 		return
 	}
-	if err := h.app.Actuary.SetLimit(actuaryCtx(r), id, *req.Limit); err != nil {
+	principal, _ := auth.PrincipalFromContext(r.Context())
+	if err := h.app.Actuary.SetLimit(actuaryCtx(r), principal.ID, principal.Role, id, *req.Limit); err != nil {
 		writeDomainError(w, r, err)
 		return
 	}
@@ -67,7 +69,8 @@ func (h *Handlers) ActuaryResetLimit(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, err)
 		return
 	}
-	if err := h.app.Actuary.ResetLimit(actuaryCtx(r), id); err != nil {
+	principal, _ := auth.PrincipalFromContext(r.Context())
+	if err := h.app.Actuary.ResetLimit(actuaryCtx(r), principal.ID, principal.Role, id); err != nil {
 		writeDomainError(w, r, err)
 		return
 	}
