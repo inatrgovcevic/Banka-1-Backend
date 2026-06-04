@@ -157,3 +157,25 @@ func (c *MarketClient) ConvertNoCommission(ctx context.Context, amount decimal.D
 func joinCSV(items []string) string {
 	return strings.Join(items, ",")
 }
+
+// DividendData mirrors DividendDataClient.DividendData — one row per STOCK
+// listing with the as-of price, exchange currency, and dividend yield (WP-14).
+type DividendData struct {
+	ListingID     int64            `json:"listingId"`
+	Ticker        string           `json:"ticker"`
+	Price         *decimal.Decimal `json:"price"`
+	Currency      *string          `json:"currency"`
+	DividendYield *decimal.Decimal `json:"dividendYield"`
+}
+
+// FetchDividendData mirrors DividendDataClient.fetchAll: GET
+// /stocks/internal/dividend-data (SERVICE token). Tolerant — returns an empty
+// slice on upstream failure, so a quarterly run with no data gracefully pays
+// nothing instead of erroring.
+func (c *MarketClient) FetchDividendData(ctx context.Context) []DividendData {
+	var out []DividendData
+	if err := c.base.doJSON(ctx, http.MethodGet, "/stocks/internal/dividend-data", nil, nil, &out); err != nil {
+		return []DividendData{}
+	}
+	return out
+}

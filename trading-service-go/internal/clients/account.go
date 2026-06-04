@@ -190,3 +190,67 @@ func (c *AccountClient) GetDefaultRsdAccountNumberForOwner(ctx context.Context, 
 	}
 	return out.AccountNumber
 }
+
+// OwnerAccount mirrors DividendAccountClient.OwnerAccount — the id /
+// accountNumber / ownerId subset the dividend payout records and credits (WP-14).
+type OwnerAccount struct {
+	ID            *int64  `json:"id"`
+	AccountNumber *string `json:"accountNumber"`
+	OwnerID       *int64  `json:"ownerId"`
+}
+
+// Number returns the account number or "".
+func (a OwnerAccount) Number() string {
+	if a.AccountNumber == nil {
+		return ""
+	}
+	return *a.AccountNumber
+}
+
+// OwnerIDValue returns the owner id or 0.
+func (a OwnerAccount) OwnerIDValue() int64 {
+	if a.OwnerID == nil {
+		return 0
+	}
+	return *a.OwnerID
+}
+
+// GetAccountInCurrency mirrors DividendAccountClient.accountInCurrency: GET
+// /accounts/internal/by-owner/{ownerId}/currency/{currencyCode}. A 404 (owner
+// has no account in that currency) and every other failure return nil — the
+// dividend executor then falls back to the owner's RSD account, matching Java.
+func (c *AccountClient) GetAccountInCurrency(ctx context.Context, ownerID int64, currency string) *OwnerAccount {
+	var out OwnerAccount
+	path := fmt.Sprintf("/accounts/internal/by-owner/%d/currency/%s", ownerID, url.PathEscape(currency))
+	if err := c.base.doJSON(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
+		return nil
+	}
+	if out.AccountNumber == nil || *out.AccountNumber == "" {
+		return nil
+	}
+	return &out
+}
+
+// GetStateRsdOwnerAccount mirrors DividendAccountClient.stateRsdAccount: GET
+// /internal/accounts/state/RSD projected to OwnerAccount. Tolerant (nil on any
+// failure) — the payout row is still recorded, only the credit is skipped.
+func (c *AccountClient) GetStateRsdOwnerAccount(ctx context.Context) *OwnerAccount {
+	return c.ownerAccount(ctx, "/internal/accounts/state/RSD")
+}
+
+// GetBankRsdOwnerAccount mirrors DividendAccountClient.bankRsdAccount: GET
+// /internal/accounts/bank/RSD projected to OwnerAccount (Profit Banke target).
+func (c *AccountClient) GetBankRsdOwnerAccount(ctx context.Context) *OwnerAccount {
+	return c.ownerAccount(ctx, "/internal/accounts/bank/RSD")
+}
+
+func (c *AccountClient) ownerAccount(ctx context.Context, path string) *OwnerAccount {
+	var out OwnerAccount
+	if err := c.base.doJSON(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
+		return nil
+	}
+	if out.AccountNumber == nil || *out.AccountNumber == "" {
+		return nil
+	}
+	return &out
+}

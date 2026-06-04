@@ -47,22 +47,26 @@ func registerRoutes(handle func(method, path string, handler http.Handler), app 
 	//  - GET /orders/my-orders: CLIENT_BASIC/CLIENT_TRADING/CLIENT
 	trader := []string{"CLIENT_TRADING", "AGENT", "SUPERVISOR"}
 	clientRoles := []string{"CLIENT_BASIC", "CLIENT_TRADING", "CLIENT"}
-	recurringRoles := []string{"CLIENT_BASIC", "CLIENT_TRADING", "AGENT", "SUPERVISOR"}
 	authenticated := []string{"CLIENT_BASIC", "CLIENT_TRADING", "CLIENT", "AGENT", "SUPERVISOR", "ADMIN", "SERVICE"}
 	handle(http.MethodPost, "/orders/buy", orderSecured(jwtService, trader, handlers.OrderBuy))
 	handle(http.MethodPost, "/orders/sell", orderSecured(jwtService, trader, handlers.OrderSell))
 	handle(http.MethodGet, "/orders", orderSecured(jwtService, supervisor, handlers.OrderList))
 	handle(http.MethodGet, "/orders/my-orders", orderSecured(jwtService, clientRoles, handlers.OrderMyOrders))
-	handle(http.MethodGet, "/orders/recurring", orderSecured(jwtService, recurringRoles, handlers.RecurringOrders))
-	handle(http.MethodPost, "/orders/recurring", orderSecured(jwtService, recurringRoles, handlers.RecurringOrders))
-	handle(http.MethodPost, "/orders/recurring/{id}/pause", orderSecured(jwtService, recurringRoles, handlers.RecurringOrderPause))
-	handle(http.MethodPost, "/orders/recurring/{id}/resume", orderSecured(jwtService, recurringRoles, handlers.RecurringOrderResume))
-	handle(http.MethodDelete, "/orders/recurring/{id}", orderSecured(jwtService, recurringRoles, handlers.RecurringOrderDelete))
+	handle(http.MethodGet, "/orders/my-orders/paged", orderSecured(jwtService, clientRoles, handlers.OrderMyOrdersPaged))
 	handle(http.MethodPost, "/orders/{id}/confirm", orderSecured(jwtService, trader, handlers.OrderConfirm))
 	handle(http.MethodPost, "/orders/{id}/cancel", orderSecured(jwtService, trader, handlers.OrderCancel))
 	handle(http.MethodPut, "/orders/{id}/cancel", orderSecured(jwtService, supervisor, handlers.OrderCancelSupervisor))
 	handle(http.MethodPut, "/orders/{id}/approve", orderSecured(jwtService, supervisor, handlers.OrderApprove))
 	handle(http.MethodPut, "/orders/{id}/decline", orderSecured(jwtService, supervisor, handlers.OrderDecline))
+
+	// Recurring (standing) orders — Celina 3.6, mirrors RecurringOrderController
+	// (@RequestMapping("/recurring-orders"), hasAnyRole CLIENT_TRADING/AGENT/
+	// SUPERVISOR; PATCH pause/resume, DELETE cancel → 204).
+	handle(http.MethodGet, "/recurring-orders", orderSecured(jwtService, trader, handlers.RecurringOrdersList))
+	handle(http.MethodPost, "/recurring-orders", orderSecured(jwtService, trader, handlers.RecurringOrderCreate))
+	handle(http.MethodPatch, "/recurring-orders/{id}/pause", orderSecured(jwtService, trader, handlers.RecurringOrderPause))
+	handle(http.MethodPatch, "/recurring-orders/{id}/resume", orderSecured(jwtService, trader, handlers.RecurringOrderResume))
+	handle(http.MethodDelete, "/recurring-orders/{id}", orderSecured(jwtService, trader, handlers.RecurringOrderDelete))
 
 	// Tax (order-service module). Per TaxController @PreAuthorize:
 	//  - POST /tax/collect, /tax/collect/current-month: SUPERVISOR
@@ -83,8 +87,18 @@ func registerRoutes(handle func(method, path string, handler http.Handler), app 
 	handle(http.MethodDelete, "/watchlist/items/{id}", orderSecured(jwtService, authenticated, handlers.WatchlistItemDelete))
 	handle(http.MethodGet, "/alerts", orderSecured(jwtService, authenticated, handlers.PriceAlerts))
 	handle(http.MethodPost, "/alerts", orderSecured(jwtService, authenticated, handlers.PriceAlerts))
-	handle(http.MethodGet, "/audit-log", orderSecured(jwtService, []string{"ADMIN", "SUPERVISOR"}, handlers.AuditLog))
-	handle(http.MethodGet, "/portfolio/dividends", orderSecured(jwtService, portfolioRoles, handlers.PortfolioDividends))
+	// Audit log (WP-2 / Issue 9) — GET /audit mirrors AuditLogController
+	// (ADMIN/SUPERVISOR, filters + Page envelope); GET /audit-log keeps the
+	// legacy flat view the existing frontend audit page consumes (actorName /
+	// targetName enrichment), now derived from the reshaped schema.
+	handle(http.MethodGet, "/audit", orderSecured(jwtService, []string{"ADMIN", "SUPERVISOR"}, handlers.AuditLog))
+	handle(http.MethodGet, "/audit-log", orderSecured(jwtService, []string{"ADMIN", "SUPERVISOR"}, handlers.AuditLogLegacy))
+
+	// Dividend payouts (WP-14 Celina 3.7) — mirrors DividendController: GET has
+	// no @PreAuthorize (any authenticated user, scoped to the JWT id claim);
+	// the manual trigger run is ADMIN-only.
+	handle(http.MethodGet, "/dividends", jwtService.Middleware(http.HandlerFunc(handlers.MyDividends)))
+	handle(http.MethodPost, "/dividends/trigger", orderSecured(jwtService, []string{"ADMIN"}, handlers.DividendTrigger))
 
 	// Funds (trading-service module). Per InvestmentFundController:
 	//  - Discovery / details / analytics / securities / performance: any

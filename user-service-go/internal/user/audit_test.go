@@ -47,6 +47,27 @@ func TestPublishPermissionAuditIfChanged(t *testing.T) {
 	}
 }
 
+func TestPublishPermissionAuditActorNameFallsBackToSubject(t *testing.T) {
+	pub := &recordingNotificationPublisher{}
+	service := &Service{pub: pub}
+	// Login tokens carry the email in "sub" and no email claim — the actor
+	// name must fall back to the subject, not USER_<id>.
+	ctx := gpauth.WithPrincipal(context.Background(), platform.Principal{ID: 10, Subject: "admin@banka.com"})
+
+	service.publishPermissionAuditIfChanged(ctx, Employee{ID: 42}, []string{"READ"}, []string{"READ", "MARGIN_TRADE"})
+
+	if len(pub.payloads) != 1 {
+		t.Fatalf("expected one audit event, got %#v", pub.payloads)
+	}
+	event, ok := pub.payloads[0].(auditEvent)
+	if !ok {
+		t.Fatalf("expected auditEvent payload, got %T", pub.payloads[0])
+	}
+	if event.ActorName != "admin@banka.com" {
+		t.Fatalf("unexpected actor name: %q", event.ActorName)
+	}
+}
+
 func TestPublishPermissionAuditIfUnchangedDoesNothing(t *testing.T) {
 	pub := &recordingNotificationPublisher{}
 	service := &Service{pub: pub}

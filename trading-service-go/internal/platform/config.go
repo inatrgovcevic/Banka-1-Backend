@@ -27,6 +27,12 @@ type Config struct {
 	// would double-process. Flip to true at cut-over (when Java is retired).
 	OrderSchedulersEnabled bool
 
+	// RecurringOrderSchedulerEnabled gates the Celina 3.6 standing-order firing
+	// cron (0 */15 * * * *, mirrors RecurringOrderScheduler). OFF by default for
+	// the same coexistence reason as the other schedulers — if a Java order-service
+	// also fires recurring_orders rows, both would double-place orders.
+	RecurringOrderSchedulerEnabled bool
+
 	// TaxSchedulerEnabled gates the monthly capital-gains collection cron
 	// (0 0 0 1 * *, previous month). OFF by default during coexistence — Java runs
 	// the same job on the same rows (idempotent via the tax_charges unique
@@ -37,6 +43,12 @@ type Config struct {
 	// as a string and parsed to a decimal in NewApp so a regulatory rate change
 	// needs only an env change, no redeploy.
 	TaxCapitalGainsRate string
+
+	// DividendSchedulerEnabled gates the WP-14 quarterly dividend payout cron
+	// (daily 0 0 1 * * *, self-gated to the last business day of Mar/Jun/Sep/Dec
+	// — mirrors DividendScheduler). OFF by default during coexistence; the
+	// ADMIN-only POST /dividends/trigger covers manual/E2E runs either way.
+	DividendSchedulerEnabled bool
 
 	// P5 funds — saga delivery + gates.
 	//
@@ -71,6 +83,14 @@ type Config struct {
 	// OtcReminderDays mirrors otc.contract.expiration-notification-days (default 3):
 	// how many days before settlement the reminder cron fires (D-N).
 	OtcReminderDays int
+
+	// AuditConsumerEnabled gates the WP-2 audit.# consumer (durable queue
+	// audit-log-queue on employee.events — the sink for other services' audit
+	// events, e.g. user-service-go's EMPLOYEE_PERMISSIONS_CHANGED). OFF by
+	// default during coexistence: only one consumer (the Java trading-service
+	// or this one) may own the durable queue. Trading's OWN order-decision
+	// events are recorded by direct insert and do not need the consumer.
+	AuditConsumerEnabled bool
 
 	// P7 interbank — RoutingNumber mirrors interbank.my-routing-number
 	// (=${BANKA1_ROUTING_NUMBER:111}): this bank's interbank routing number,
@@ -130,17 +150,20 @@ func LoadConfig() Config {
 			BankingCoreURL: getEnv("SERVICES_BANKING_CORE_URL", "http://banking-core-service:8084"),
 			MarketURL:      getEnv("SERVICES_MARKET_URL", "http://market-service:8085"),
 		},
-		OrderSchedulersEnabled:       getEnvBool("ORDER_SCHEDULERS_ENABLED", false),
-		TaxSchedulerEnabled:          getEnvBool("TAX_SCHEDULER_ENABLED", false),
-		TaxCapitalGainsRate:          getEnv("BANKA_TAX_CAPITAL_GAINS_RATE", "0.15"),
-		SagaEventsExchange:           getEnv("SAGA_EVENTS_EXCHANGE", "saga.events"),
-		SagaResultsExchange:          getEnv("SAGA_RESULTS_EXCHANGE", "saga.exchange"),
-		FundSagaConsumersEnabled:     getEnvBool("FUND_SAGA_CONSUMERS_ENABLED", false),
-		FundSnapshotSchedulerEnabled: getEnvBool("FUND_SNAPSHOT_SCHEDULER_ENABLED", false),
-		OtcSchedulersEnabled:         getEnvBool("OTC_SCHEDULERS_ENABLED", false),
-		OtcSagaConsumersEnabled:      getEnvBool("OTC_SAGA_CONSUMERS_ENABLED", false),
-		OtcReminderDays:              int(getEnvInt64("OTC_CONTRACT_EXPIRATION_NOTIFICATION_DAYS", 3)),
-		RoutingNumber:                int(getEnvInt64("BANKA1_ROUTING_NUMBER", 111)),
+		OrderSchedulersEnabled:         getEnvBool("ORDER_SCHEDULERS_ENABLED", false),
+		RecurringOrderSchedulerEnabled: getEnvBool("RECURRING_ORDER_SCHEDULER_ENABLED", false),
+		TaxSchedulerEnabled:            getEnvBool("TAX_SCHEDULER_ENABLED", false),
+		DividendSchedulerEnabled:       getEnvBool("DIVIDEND_SCHEDULER_ENABLED", false),
+		TaxCapitalGainsRate:            getEnv("BANKA_TAX_CAPITAL_GAINS_RATE", "0.15"),
+		SagaEventsExchange:             getEnv("SAGA_EVENTS_EXCHANGE", "saga.events"),
+		SagaResultsExchange:            getEnv("SAGA_RESULTS_EXCHANGE", "saga.exchange"),
+		FundSagaConsumersEnabled:       getEnvBool("FUND_SAGA_CONSUMERS_ENABLED", false),
+		FundSnapshotSchedulerEnabled:   getEnvBool("FUND_SNAPSHOT_SCHEDULER_ENABLED", false),
+		OtcSchedulersEnabled:           getEnvBool("OTC_SCHEDULERS_ENABLED", false),
+		OtcSagaConsumersEnabled:        getEnvBool("OTC_SAGA_CONSUMERS_ENABLED", false),
+		OtcReminderDays:                int(getEnvInt64("OTC_CONTRACT_EXPIRATION_NOTIFICATION_DAYS", 3)),
+		AuditConsumerEnabled:           getEnvBool("AUDIT_CONSUMER_ENABLED", false),
+		RoutingNumber:                  int(getEnvInt64("BANKA1_ROUTING_NUMBER", 111)),
 	}
 }
 

@@ -3,7 +3,7 @@ package model
 // IgnoredRoutingKeys contains internal command events that the notification-service
 // intentionally acknowledges without sending an email (no userEmail in payload).
 var IgnoredRoutingKeys = map[string]bool{
-	"card.create":    true,
+	"card.create":     true,
 	"card.deactivate": true,
 }
 
@@ -35,6 +35,11 @@ var RoutingKeyMap = map[string]NotificationType{
 	"order.approved": NotificationTypeOrderApproved,
 	"order.declined": NotificationTypeOrderDeclined,
 
+	"order.created":        NotificationTypeOrderCreated,
+	"order.done":           NotificationTypeOrderDone,
+	"order.partial_fill":   NotificationTypeOrderPartialFill,
+	"order.auto_cancelled": NotificationTypeOrderAutoCancelled,
+
 	"tax.collected": NotificationTypeTaxCollected,
 
 	"otc.countered":       NotificationTypeOTCCounterOffered,
@@ -53,10 +58,17 @@ var RoutingKeyMap = map[string]NotificationType{
 }
 
 // PushOnlyNotificationTypes contains notification types that are mobile-push
-// exclusive and may be produced without a recipient email address.
+// exclusive and may be produced without a recipient email address. The order
+// lifecycle events are push-only here: their purpose is the mobile push (Celina 3
+// "order lifecycle push notifications"), and the publisher may not always resolve
+// a recipient email — requiring one would poison the queue.
 var PushOnlyNotificationTypes = map[NotificationType]bool{
-	NotificationTypePriceAlertTriggered:  true,
+	NotificationTypePriceAlertTriggered:   true,
 	NotificationTypeOrderRecurringSkipped: true,
+	NotificationTypeOrderCreated:          true,
+	NotificationTypeOrderDone:             true,
+	NotificationTypeOrderPartialFill:      true,
+	NotificationTypeOrderAutoCancelled:    true,
 }
 
 // IsPushOnlyNotificationType reports whether the given notification type is

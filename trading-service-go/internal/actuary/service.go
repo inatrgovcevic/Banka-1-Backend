@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"banka1/trading-service-go/internal/api"
+	"banka1/trading-service-go/internal/audit"
 	"banka1/trading-service-go/internal/clients"
 
 	"github.com/shopspring/decimal"
@@ -23,10 +24,11 @@ const employeePageSize = 100
 type Service struct {
 	repo      *Repository
 	employees *clients.EmployeeClient
+	auditor   *audit.Service
 }
 
-func NewService(repo *Repository, employees *clients.EmployeeClient) *Service {
-	return &Service{repo: repo, employees: employees}
+func NewService(repo *Repository, employees *clients.EmployeeClient, auditor *audit.Service) *Service {
+	return &Service{repo: repo, employees: employees, auditor: auditor}
 }
 
 // GetAgents returns a Spring-style page of AGENT employees merged with their
@@ -112,14 +114,18 @@ func (s *Service) SetLimit(ctx context.Context, actorID int64, actorRole string,
 	if limit.LessThan(info.UsedLimit) {
 		return api.NewOtcError(404, "Limit cannot be lower than the current used limit of "+info.UsedLimit.String()+".")
 	}
-	oldValue := ""
+	oldValue := "-"
 	if info.Limit != nil {
 		oldValue = info.Limit.String()
 	}
 	if err := s.repo.UpdateLimit(ctx, employeeID, limit); err != nil {
 		return err
 	}
-	_ = s.repo.InsertAuditLog(ctx, actorID, actorRole, "SET_LIMIT", "actuary_info", fmt.Sprintf("%d", employeeID), oldValue, limit.String())
+	// WP-2 audit trail, Ilijan's AuditActionType naming: the legacy
+	// SET_LIMIT/old_value/new_value stub write became an AGENT_LIMIT_CHANGED
+	// event with the change captured in details.
+	s.recordAgentAudit(ctx, actorID, audit.ActionAgentLimitChanged, employeeID,
+		"Limit promenjen: "+oldValue+" -> "+limit.String())
 	return nil
 }
 
@@ -143,8 +149,44 @@ func (s *Service) ResetLimit(ctx context.Context, actorID int64, actorRole strin
 	if err := s.repo.ResetLimit(ctx, employeeID); err != nil {
 		return err
 	}
-	_ = s.repo.InsertAuditLog(ctx, actorID, actorRole, "RESET_LIMIT", "actuary_info", fmt.Sprintf("%d", employeeID), oldUsed, "0")
+	s.recordAgentAudit(ctx, actorID, audit.ActionAgentUsedLimitReset, employeeID,
+		"Iskorisceni limit resetovan: "+oldUsed+" -> 0")
 	return nil
+}
+
+// recordAgentAudit records an agent-management audit event (WP-2) with the
+// actor's display name resolved from user-service (falling back to the raw id,
+// mirroring resolveActorName). Best-effort — audit never breaks the operation.
+func (s *Service) recordAgentAudit(ctx context.Context, actorID int64, actionType string, employeeID int64, details string) {
+	if s.auditor == nil {
+		return
+	}
+	actorName := fmt.Sprintf("%d", actorID)
+	if emp, err := s.employees.GetEmployee(ctx, actorID); err == nil && emp != nil {
+		parts := []string{}
+		if emp.Ime != nil {
+			parts = append(parts, strings.TrimSpace(*emp.Ime))
+		}
+		if emp.Prezime != nil {
+			parts = append(parts, strings.TrimSpace(*emp.Prezime))
+		}
+		if name := strings.TrimSpace(strings.Join(parts, " ")); name != "" {
+			actorName = name
+		}
+	}
+	targetType := "EMPLOYEE"
+	targetID := fmt.Sprintf("%d", employeeID)
+	ts := time.Now().UnixMilli()
+	id := actorID
+	s.auditor.RecordBestEffort(ctx, audit.Event{
+		ActorID:    &id,
+		ActorName:  &actorName,
+		ActionType: actionType,
+		TargetType: &targetType,
+		TargetID:   &targetID,
+		Details:    &details,
+		Timestamp:  &ts,
+	})
 }
 
 // SetNeedApproval toggles an agent's need-approval flag. value is bean-validated

@@ -164,4 +164,20 @@ var defaultTemplates = map[string]EmailTemplate{
 		Subject:      "Periodicni nalog preskocen",
 		BodyTemplate: "Zdravo {{name}}, vas periodicni nalog {{orderId}} nije izvrsen. Razlog: {{reason}}.",
 	},
+	"ORDER_CREATED": {
+		Subject:      "Nalog kreiran",
+		BodyTemplate: "Zdravo {{name}}, vas nalog {{orderId}} ({{ticker}}) je kreiran. Smer: {{direction}}, kolicina: {{quantity}}, cena: {{price}}. Status: {{status}}.",
+	},
+	"ORDER_DONE": {
+		Subject:      "Nalog izvrsen",
+		BodyTemplate: "Zdravo {{name}}, vas nalog {{orderId}} ({{ticker}}) je u potpunosti izvrsen. Kolicina: {{quantity}}, cena izvrsenja: {{price}}.",
+	},
+	"ORDER_PARTIAL_FILL": {
+		Subject:      "Delimicno izvrsenje naloga",
+		BodyTemplate: "Zdravo {{name}}, nalog {{orderId}} ({{ticker}}) je delimicno izvrsen. Preostala kolicina: {{remainingPortions}}, cena: {{price}}.",
+	},
+	"ORDER_AUTO_CANCELLED": {
+		Subject:      "Nalog otkazan",
+		BodyTemplate: "Zdravo {{name}}, vas nalog {{orderId}} ({{ticker}}) je automatski otkazan jer je istekao rok poravnanja.",
+	},
 }

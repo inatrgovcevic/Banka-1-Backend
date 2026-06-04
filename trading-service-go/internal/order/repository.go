@@ -51,6 +51,10 @@ type Order struct {
 	ReservedLimitExposure decimal.Decimal
 	PurchaseFor           *string
 	FundID                *int64
+	// CreatedAt is stamped once at insert (mirrors @PrePersist on Order.createdAt,
+	// migration 004). ExecutedAt is set when the order reaches DONE.
+	CreatedAt  time.Time
+	ExecutedAt *time.Time
 }
 
 // Transaction mirrors a row of the `transactions` table (one executed portion).
@@ -79,7 +83,7 @@ const orderColumns = `id, user_id, listing_id, order_type, quantity, contract_si
 	price_per_unit::text, limit_value::text, stop_value::text, direction, status,
 	approved_by, is_done, last_modification, remaining_portions, after_hours,
 	exchange_closed, all_or_none, margin, account_id, reserved_limit_exposure::text,
-	purchase_for, fund_id`
+	purchase_for, fund_id, created_at, executed_at`
 
 func scanOrder(row pgx.Row) (*Order, error) {
 	var (
@@ -93,7 +97,7 @@ func scanOrder(row pgx.Row) (*Order, error) {
 		&priceText, &limitText, &stopText, &o.Direction, &o.Status,
 		&o.ApprovedBy, &o.IsDone, &o.LastModification, &o.RemainingPortions, &o.AfterHours,
 		&o.ExchangeClosed, &o.AllOrNone, &o.Margin, &o.AccountID, &reservedText,
-		&o.PurchaseFor, &o.FundID); err != nil {
+		&o.PurchaseFor, &o.FundID, &o.CreatedAt, &o.ExecutedAt); err != nil {
 		return nil, err
 	}
 	price, err := decimal.NewFromString(priceText)
@@ -200,14 +204,15 @@ func (r *Repository) Insert(ctx context.Context, q Querier, o *Order) error {
 			user_id, listing_id, order_type, quantity, contract_size, price_per_unit,
 			limit_value, stop_value, direction, status, approved_by, is_done,
 			last_modification, remaining_portions, after_hours, exchange_closed,
-			all_or_none, margin, account_id, reserved_limit_exposure, purchase_for, fund_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now(), $13,$14,$15,$16,$17,$18,$19,$20,$21)
-		RETURNING id, last_modification`,
+			all_or_none, margin, account_id, reserved_limit_exposure, purchase_for, fund_id,
+			created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now(), $13,$14,$15,$16,$17,$18,$19,$20,$21, now())
+		RETURNING id, last_modification, created_at`,
 		o.UserID, o.ListingID, o.OrderType, o.Quantity, o.ContractSize, o.PricePerUnit.String(),
 		limit, stop, o.Direction, o.Status, o.ApprovedBy, o.IsDone,
 		o.RemainingPortions, o.AfterHours, o.ExchangeClosed, o.AllOrNone, o.Margin, o.AccountID,
 		reserved, o.PurchaseFor, o.FundID).
-		Scan(&o.ID, &o.LastModification)
+		Scan(&o.ID, &o.LastModification, &o.CreatedAt)
 }
 
 // Update writes the mutable columns of an existing order, bumping
@@ -227,14 +232,14 @@ func (r *Repository) Update(ctx context.Context, q Querier, o *Order) error {
 			limit_value = $6, stop_value = $7, direction = $8, status = $9, approved_by = $10,
 			is_done = $11, remaining_portions = $12, after_hours = $13, exchange_closed = $14,
 			all_or_none = $15, margin = $16, account_id = $17, reserved_limit_exposure = $18,
-			purchase_for = $19, fund_id = $20, last_modification = now()
+			purchase_for = $19, fund_id = $20, executed_at = $21, last_modification = now()
 		WHERE id = $1
 		RETURNING last_modification`,
 		o.ID, o.OrderType, o.Quantity, o.ContractSize, o.PricePerUnit.String(),
 		limit, stop, o.Direction, o.Status, o.ApprovedBy,
 		o.IsDone, o.RemainingPortions, o.AfterHours, o.ExchangeClosed,
 		o.AllOrNone, o.Margin, o.AccountID, o.ReservedLimitExposure.String(),
-		o.PurchaseFor, o.FundID).
+		o.PurchaseFor, o.FundID, o.ExecutedAt).
 		Scan(&o.LastModification)
 }
 
@@ -339,6 +344,30 @@ func (r *Repository) FindTransactionsByOrderIDsAndTimestampBetween(ctx context.C
 		return []Transaction{}, nil
 	}
 	rows, err := q.Query(ctx, `SELECT `+transactionColumns+` FROM transactions WHERE order_id = ANY($1) AND timestamp BETWEEN $2 AND $3`, orderIDs, start, end)
+	if err != nil {
+		return nil, err
+	}
+	return scanTransactions(rows)
+}
+
+// BankHeldBuyQuantity mirrors OrderRepository.bankHeldBuyQuantity (WP-14
+// dividend bank-held split): the sum of EXECUTED quantity (quantity -
+// remaining_portions) across the holder's PurchaseFor.BANK BUY orders for one
+// listing. Untouched orders contribute 0 (remaining_portions == quantity). The
+// caller clamps to [0, holder.quantity].
+func (r *Repository) BankHeldBuyQuantity(ctx context.Context, q Querier, userID, listingID int64) (int64, error) {
+	var sum int64
+	err := q.QueryRow(ctx, `
+		SELECT COALESCE(SUM(quantity - remaining_portions), 0) FROM orders
+		WHERE user_id = $1 AND listing_id = $2 AND purchase_for = 'BANK' AND direction = 'BUY'`,
+		userID, listingID).Scan(&sum)
+	return sum, err
+}
+
+// FindTransactionsByOrderID mirrors TransactionRepository.findByOrderId — all
+// recorded fills for one order (the enriched My Orders executionPrice).
+func (r *Repository) FindTransactionsByOrderID(ctx context.Context, q Querier, orderID int64) ([]Transaction, error) {
+	rows, err := q.Query(ctx, `SELECT `+transactionColumns+` FROM transactions WHERE order_id = $1`, orderID)
 	if err != nil {
 		return nil, err
 	}

@@ -86,6 +86,25 @@ func (r *Repository) FindByUserID(ctx context.Context, q Querier, userID int64) 
 	return out, rows.Err()
 }
 
+// FindStockHoldersByListingID mirrors PortfolioRepository.findByListingIdStockHolders
+// (WP-14 dividend): every STOCK position with quantity > 0 for one listing.
+func (r *Repository) FindStockHoldersByListingID(ctx context.Context, q Querier, listingID int64) ([]Portfolio, error) {
+	rows, err := q.Query(ctx, `SELECT `+selectColumns+` FROM portfolio WHERE listing_id = $1 AND listing_type = 'STOCK' AND quantity > 0`, listingID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]Portfolio, 0)
+	for rows.Next() {
+		p, err := scanPortfolio(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *p)
+	}
+	return out, rows.Err()
+}
+
 // FindByID returns the position with the given id, or (nil, nil) when absent.
 func (r *Repository) FindByID(ctx context.Context, q Querier, id int64) (*Portfolio, error) {
 	p, err := scanPortfolio(q.QueryRow(ctx, `SELECT `+selectColumns+` FROM portfolio WHERE id = $1`, id))

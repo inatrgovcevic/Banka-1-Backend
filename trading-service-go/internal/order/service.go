@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
 	"banka1/trading-service-go/internal/actuary"
 	"banka1/trading-service-go/internal/api"
+	"banka1/trading-service-go/internal/audit"
 	"banka1/trading-service-go/internal/clients"
 	"banka1/trading-service-go/internal/portfolio"
 
@@ -52,8 +54,10 @@ type Service struct {
 	market     *clients.MarketClient
 	account    *clients.AccountClient
 	employees  *clients.EmployeeClient
+	customers  *clients.CustomerClient
 	notifier   Notifier
 	funds      FundCallback
+	auditor    *audit.Service
 	worker     *Worker
 	logger     *slog.Logger
 }
@@ -62,7 +66,7 @@ type Service struct {
 // matching the Java ThreadPoolTaskScheduler). Call Start before serving and Stop
 // on shutdown.
 func NewService(repo *Repository, portfolios *portfolio.Repository, actuaries *actuary.Repository,
-	cl *clients.Clients, notifier Notifier, fundCallback FundCallback, logger *slog.Logger) *Service {
+	cl *clients.Clients, notifier Notifier, fundCallback FundCallback, auditor *audit.Service, logger *slog.Logger) *Service {
 	if notifier == nil {
 		notifier = NoopNotifier{}
 	}
@@ -76,8 +80,10 @@ func NewService(repo *Repository, portfolios *portfolio.Repository, actuaries *a
 		market:     cl.Market,
 		account:    cl.Account,
 		employees:  cl.Employee,
+		customers:  cl.Customer,
 		notifier:   notifier,
 		funds:      fundCallback,
+		auditor:    auditor,
 		logger:     logger,
 	}
 	s.worker = NewWorker(s.processExecutionAttempt, logger, 4)
@@ -159,6 +165,11 @@ func (s *Service) CreateBuyOrder(ctx context.Context, user AuthUser, req api.Cre
 		return api.OrderResponse{}, err
 	}
 	fee := s.commission(ctx, orderType, approx, currency)
+	// Issue #255: investment-fund orders are exempt from the brokerage commission —
+	// only the security price may leave the fund's account (chargeableFee = 0).
+	if isFund {
+		fee = decimal.Zero
+	}
 	// Scenario 63: reject margin orders for clients without MARGIN_TRADE permission.
 	if boolValue(req.Margin) && user.IsClient() && !user.HasMarginPermission() {
 		return api.OrderResponse{}, api.NewOrderError(409, "User does not have margin permission")
@@ -322,6 +333,141 @@ func (s *Service) GetMyOrders(ctx context.Context, user AuthUser) ([]api.OrderRe
 	return out, nil
 }
 
+// GetMyOrdersPaged mirrors getMyOrdersPaged: the filtered, paginated mobile My
+// Orders view. Loads the client's orders, filters by status / listing type /
+// created-at date range, sorts by createdAt desc, enriches each row with the
+// listing ticker/name/type and the weighted-average execution price, then pages
+// in memory (matching the Java PageImpl slicing).
+func (s *Service) GetMyOrdersPaged(ctx context.Context, user AuthUser, statusFilter string, listingType *string, dateFrom, dateTo *time.Time, page, size int) (api.Page[api.OrderResponse], error) {
+	if !user.IsClient() {
+		return api.Page[api.OrderResponse]{}, api.NewOrderError(403, "Only clients can view their orders")
+	}
+	orders, err := s.repo.FindByUserID(ctx, s.repo.Pool(), user.UserID)
+	if err != nil {
+		return api.Page[api.OrderResponse]{}, err
+	}
+
+	listingCache := map[int64]*clients.StockListing{}
+	for i := range orders {
+		id := orders[i].ListingID
+		if _, ok := listingCache[id]; !ok {
+			listing, err := s.market.GetListing(ctx, id)
+			if err != nil {
+				return api.Page[api.OrderResponse]{}, err
+			}
+			listingCache[id] = listing
+		}
+	}
+
+	filtered := make([]*Order, 0, len(orders))
+	for i := range orders {
+		o := &orders[i]
+		if !matchesStatusFilter(o, statusFilter) ||
+			!matchesListingTypeFilter(o, listingType, listingCache) ||
+			!matchesDateRange(o, dateFrom, dateTo) {
+			continue
+		}
+		filtered = append(filtered, o)
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		return filtered[i].CreatedAt.After(filtered[j].CreatedAt)
+	})
+
+	rows := make([]api.OrderResponse, 0, len(filtered))
+	for _, o := range filtered {
+		resp, err := s.enrichStoredOrderResponse(ctx, o, listingCache[o.ListingID])
+		if err != nil {
+			return api.Page[api.OrderResponse]{}, err
+		}
+		rows = append(rows, resp)
+	}
+
+	total := len(rows)
+	slice := make([]api.OrderResponse, 0)
+	if start := page * size; start < total {
+		end := start + size
+		if end > total {
+			end = total
+		}
+		slice = rows[start:end]
+	}
+	return api.NewPage(slice, page, size, int64(total)), nil
+}
+
+func matchesStatusFilter(o *Order, statusFilter string) bool {
+	if statusFilter == "" || statusFilter == "ALL" {
+		return true
+	}
+	return o.Status == statusFilter
+}
+
+func matchesListingTypeFilter(o *Order, listingType *string, listingCache map[int64]*clients.StockListing) bool {
+	if listingType == nil {
+		return true
+	}
+	listing := listingCache[o.ListingID]
+	return listing != nil && listing.ListingType != nil && *listing.ListingType == *listingType
+}
+
+func matchesDateRange(o *Order, dateFrom, dateTo *time.Time) bool {
+	if o.CreatedAt.IsZero() {
+		return dateFrom == nil && dateTo == nil
+	}
+	created := o.CreatedAt.UTC()
+	createdDate := time.Date(created.Year(), created.Month(), created.Day(), 0, 0, 0, 0, time.UTC)
+	if dateFrom != nil && createdDate.Before(*dateFrom) {
+		return false
+	}
+	return dateTo == nil || !createdDate.After(*dateTo)
+}
+
+// enrichStoredOrderResponse mirrors enrichStoredOrderResponse: base response plus
+// ticker / security name / listing type from the cached listing and the realized
+// execution price computed from recorded transactions.
+func (s *Service) enrichStoredOrderResponse(ctx context.Context, order *Order, listing *clients.StockListing) (api.OrderResponse, error) {
+	approx := order.PricePerUnit.
+		Mul(decimal.NewFromInt(int64(order.ContractSize))).
+		Mul(decimal.NewFromInt(int64(order.Quantity)))
+	currency := ""
+	if listing != nil {
+		currency = listing.Currency()
+	}
+	fee := s.commission(ctx, orderPricingFamily(order.OrderType), approx, currency)
+	resp := s.mapToResponse(order, approx, fee, order.ExchangeClosed)
+	if listing != nil {
+		resp.Ticker = listing.Ticker
+		resp.SecurityName = listing.Name
+		resp.ListingType = listing.ListingType
+	}
+	execPrice, err := s.calculateExecutionPrice(ctx, order.ID)
+	if err != nil {
+		return api.OrderResponse{}, err
+	}
+	resp.ExecutionPrice = execPrice
+	return resp, nil
+}
+
+// calculateExecutionPrice mirrors calculateExecutionPrice: weighted-average
+// execution price per unit across all recorded fills, or nil when none.
+func (s *Service) calculateExecutionPrice(ctx context.Context, orderID int64) (*decimal.Decimal, error) {
+	transactions, err := s.repo.FindTransactionsByOrderID(ctx, s.repo.Pool(), orderID)
+	if err != nil {
+		return nil, err
+	}
+	weightedSum := decimal.Zero
+	var totalQuantity int64
+	for i := range transactions {
+		t := &transactions[i]
+		weightedSum = weightedSum.Add(t.PricePerUnit.Mul(decimal.NewFromInt(int64(t.Quantity))))
+		totalQuantity += int64(t.Quantity)
+	}
+	if totalQuantity == 0 {
+		return nil, nil
+	}
+	avg := weightedSum.DivRound(decimal.NewFromInt(totalQuantity), 4)
+	return &avg, nil
+}
+
 // --- Confirm / approve / decline / cancel ---------------------------------
 
 // ConfirmOrder mirrors confirmOrder: finalize a draft, decide APPROVED vs PENDING
@@ -333,6 +479,8 @@ func (s *Service) ConfirmOrder(ctx context.Context, user AuthUser, orderID int64
 		approx, fee    decimal.Decimal
 		exchangeClosed bool
 		triggerExec    bool
+		createdTicker  string
+		emitCreated    bool
 	)
 	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
 		order, err := s.repo.FindByID(ctx, tx, orderID)
@@ -361,6 +509,12 @@ func (s *Service) ConfirmOrder(ctx context.Context, user AuthUser, orderID int64
 			return err
 		}
 		f := s.commission(ctx, orderPricingFamily(order.OrderType), ap, currency)
+		// Issue #255: investment-fund orders are exempt from the brokerage
+		// commission (chargeableFee = 0 in funds checks and the response).
+		isFundOrder := order.PurchaseFor != nil && *order.PurchaseFor == PurchaseForInvestmentFund
+		if isFundOrder {
+			f = decimal.Zero
+		}
 		approx, fee, exchangeClosed = ap, f, order.ExchangeClosed
 
 		if hasPastSettlementDate(listing) {
@@ -416,20 +570,12 @@ func (s *Service) ConfirmOrder(ctx context.Context, user AuthUser, orderID int64
 			return err
 		}
 		if status == StatusApproved {
-			if order.Direction == DirectionBuy {
-				feeDebit, err := s.transferFee(ctx, fundingAccountID, f, currency, user.IsClient())
-				if err != nil {
+			// Issue #255: investment-fund orders are commission-exempt — the
+			// fund's account is debited the security price only, so the fee leg
+			// (and the old cached-liquidity fee mirror) is skipped entirely.
+			if order.Direction == DirectionBuy && !isFundOrder {
+				if _, err := s.transferFee(ctx, fundingAccountID, f, currency, user.IsClient()); err != nil {
 					return err
-				}
-				// INVESTMENT_FUND: mirror the cash leg in the funds domain's
-				// cached liquidity (matches Java notifyFundLiquidityDebit on
-				// confirm). FundID is guaranteed non-nil for fund orders by
-				// CreateBuyOrder validation.
-				if order.PurchaseFor != nil && *order.PurchaseFor == PurchaseForInvestmentFund &&
-					feeDebit.Sign() > 0 && order.FundID != nil {
-					if err := s.funds.DebitLiquidity(ctx, *order.FundID, feeDebit, "Order fee"); err != nil {
-						s.logger.Warn("fund liquidity debit (fee) failed", "orderId", order.ID, "fundId", *order.FundID, "amount", feeDebit, "error", err)
-					}
 				}
 			}
 			s.market.RefreshListing(ctx, order.ListingID)
@@ -448,10 +594,20 @@ func (s *Service) ConfirmOrder(ctx context.Context, user AuthUser, orderID int64
 		}
 		result = order
 		triggerExec = status == StatusApproved
+		if listing.Ticker != nil {
+			createdTicker = *listing.Ticker
+		}
+		emitCreated = true
 		return nil
 	})
 	if err != nil {
 		return api.OrderResponse{}, err
+	}
+	// Lifecycle CREATED notification (mirrors OrderCreationServiceImpl.confirmOrder
+	// → notifyOrderEvent(CREATED) after save). Published after commit, before the
+	// execution is scheduled — matching OrderEventNotifier's afterCommit ordering.
+	if emitCreated && result != nil {
+		s.notifier.OrderCreated(ctx, *s.buildLifecyclePayload(ctx, result, eventCreated, createdTicker, result.PricePerUnit))
 	}
 	if triggerExec {
 		s.ExecuteOrderAsync(result.ID)
@@ -491,6 +647,11 @@ func (s *Service) ApproveOrder(ctx context.Context, supervisorID, orderID int64)
 			return err
 		}
 		f := s.commission(ctx, orderPricingFamily(order.OrderType), ap, currency)
+		// Issue #255: investment-fund orders are exempt from the brokerage commission.
+		isFundOrder := order.PurchaseFor != nil && *order.PurchaseFor == PurchaseForInvestmentFund
+		if isFundOrder {
+			f = decimal.Zero
+		}
 		approx, fee = ap, f
 
 		fundingAccountID, err := s.determineFundingAccountID(ctx, order.UserID, &order.AccountID, currency)
@@ -498,8 +659,10 @@ func (s *Service) ApproveOrder(ctx context.Context, supervisorID, orderID int64)
 			return err
 		}
 		applyConversionFee := !s.isEmployeeUser(ctx, order.UserID)
-		if _, err := s.transferFee(ctx, fundingAccountID, f, currency, applyConversionFee); err != nil {
-			return err
+		if !isFundOrder {
+			if _, err := s.transferFee(ctx, fundingAccountID, f, currency, applyConversionFee); err != nil {
+				return err
+			}
 		}
 		if order.Direction == DirectionBuy && !order.Margin {
 			if err := s.checkFunds(ctx, fundingAccountID, ap, currency); err != nil {
@@ -523,6 +686,7 @@ func (s *Service) ApproveOrder(ctx context.Context, supervisorID, orderID int64)
 	if notify != nil {
 		s.notifier.OrderApproved(ctx, *notify)
 	}
+	s.publishOrderAuditEvent(ctx, result, supervisorID, true)
 	s.ExecuteOrderAsync(result.ID)
 	return s.mapToResponse(result, approx, fee, result.ExchangeClosed), nil
 }
@@ -570,6 +734,7 @@ func (s *Service) DeclineOrder(ctx context.Context, supervisorID, orderID int64)
 	if notify != nil {
 		s.notifier.OrderDeclined(ctx, *notify)
 	}
+	s.publishOrderAuditEvent(ctx, result, supervisorID, false)
 	return s.mapToResponse(result, approx, fee, result.ExchangeClosed), nil
 }
 
@@ -654,7 +819,11 @@ func (s *Service) AutoDeclineExpiredPendingOrders(ctx context.Context) error {
 	}
 	for i := range pending {
 		id := pending[i].ID
-		var notify *api.OrderNotificationPayload
+		var (
+			cancelled *Order
+			ticker    string
+			price     decimal.Decimal
+		)
 		err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
 			locked, err := s.repo.FindByIDForUpdate(ctx, tx, id)
 			if err != nil {
@@ -673,15 +842,25 @@ func (s *Service) AutoDeclineExpiredPendingOrders(ctx context.Context) error {
 			if err := s.declinePendingOrder(ctx, tx, locked, systemApproval); err != nil {
 				return err
 			}
-			notify = s.buildDecisionPayload(ctx, locked, systemApproval, StatusDeclined)
+			cancelled = locked
+			if listing.Ticker != nil {
+				ticker = *listing.Ticker
+			}
+			price = locked.PricePerUnit
 			return nil
 		})
 		if err != nil {
 			s.logger.Error("auto-decline failed for order", "orderId", id, "error", err)
 			continue
 		}
-		if notify != nil {
-			s.notifier.OrderDeclined(ctx, *notify)
+		// Mirror OrderCreationServiceImpl.autoDeclineExpiredPendingOrders: the
+		// expiry path emits AUTO_CANCELLED (not a supervisor DECLINED), so the
+		// mobile client sees the order was auto-cancelled on expiry. The audit
+		// trail still records ORDER_DECLINED with the SYSTEM actor (Java's
+		// declinePendingOrder publishes the audit event on both paths).
+		if cancelled != nil {
+			s.notifier.OrderAutoCancelled(ctx, *s.buildLifecyclePayload(ctx, cancelled, eventAutoCancelled, ticker, price))
+			s.publishOrderAuditEvent(ctx, cancelled, systemApproval, false)
 		}
 	}
 	return nil
@@ -1065,6 +1244,13 @@ func (s *Service) buildBaseOrder(userID, listingID int64, orderType string, quan
 }
 
 func (s *Service) mapToResponse(order *Order, approx, fee decimal.Decimal, exchangeClosed bool) api.OrderResponse {
+	// Celina 3: timestamps serialize as UTC Instants (trailing Z), mirroring
+	// OrderCreationServiceImpl.toUtcInstant. createdAt is NOT NULL after
+	// migration 004; the zero-check guards rows mapped before persistence.
+	createdAt := api.UTCInstant{}
+	if !order.CreatedAt.IsZero() {
+		createdAt = api.NewUTCInstant(order.CreatedAt)
+	}
 	return api.OrderResponse{
 		ID:                order.ID,
 		UserID:            order.UserID,
@@ -1079,7 +1265,7 @@ func (s *Service) mapToResponse(order *Order, approx, fee decimal.Decimal, excha
 		Status:            order.Status,
 		ApprovedBy:        order.ApprovedBy,
 		IsDone:            order.IsDone,
-		LastModification:  api.NewLocalDateTime(order.LastModification),
+		LastModification:  api.NewUTCInstant(order.LastModification),
 		RemainingPortions: order.RemainingPortions,
 		AfterHours:        order.AfterHours,
 		ExchangeClosed:    exchangeClosed,
@@ -1088,6 +1274,8 @@ func (s *Service) mapToResponse(order *Order, approx, fee decimal.Decimal, excha
 		AccountID:         order.AccountID,
 		ApproximatePrice:  approx,
 		Fee:               fee,
+		CreatedAt:         createdAt,
+		ExecutedAt:        api.UTCInstantFromPtr(order.ExecutedAt),
 	}
 }
 
@@ -1154,6 +1342,7 @@ func (s *Service) buildDecisionPayload(ctx context.Context, order *Order, superv
 		OrderID:      order.ID,
 		Status:       status,
 		UserID:       order.UserID,
+		ClientID:     order.UserID,
 		SupervisorID: supervisorID,
 		ListingID:    order.ListingID,
 		OrderType:    order.OrderType,
@@ -1170,6 +1359,123 @@ func (s *Service) buildDecisionPayload(ctx context.Context, order *Order, superv
 			"direction":    order.Direction,
 		},
 	}
+}
+
+// buildLifecyclePayload mirrors OrderEventNotifier.buildPayload: resolves the
+// order owner client-first (so the FCM push, keyed on clientId == userId, reaches
+// the mobile device) with an employee fallback, and populates the template
+// variables the lifecycle notification templates render. ClientID is always the
+// order owner.
+func (s *Service) buildLifecyclePayload(ctx context.Context, order *Order, event, ticker string, price decimal.Decimal) *api.OrderNotificationPayload {
+	name, email := s.resolveRecipient(ctx, order.UserID)
+	vars := map[string]string{
+		"orderId":           fmt.Sprintf("%d", order.ID),
+		"status":            order.Status,
+		"ticker":            ticker,
+		"listingId":         fmt.Sprintf("%d", order.ListingID),
+		"quantity":          fmt.Sprintf("%d", order.Quantity),
+		"remainingPortions": fmt.Sprintf("%d", order.RemainingPortions),
+		"price":             price.String(),
+		"orderType":         order.OrderType,
+		"direction":         order.Direction,
+		"event":             event,
+	}
+	if name != nil {
+		vars["name"] = *name
+	}
+	return &api.OrderNotificationPayload{
+		OrderID:           order.ID,
+		Status:            order.Status,
+		UserID:            order.UserID,
+		ClientID:          order.UserID,
+		ListingID:         order.ListingID,
+		OrderType:         order.OrderType,
+		Direction:         order.Direction,
+		Username:          name,
+		UserEmail:         email,
+		TemplateVariables: vars,
+	}
+}
+
+// resolveRecipient mirrors OrderEventNotifier.resolveRecipient: clients are the
+// push audience, so resolve them first (name + email); fall back to employee for
+// agent/actuary-placed orders. Best-effort — returns (nil, nil) when neither
+// lookup yields a usable recipient.
+func (s *Service) resolveRecipient(ctx context.Context, userID int64) (*string, *string) {
+	if s.customers != nil {
+		if cust, err := s.customers.GetCustomer(ctx, userID); err == nil && cust != nil &&
+			cust.Email != nil && strings.TrimSpace(*cust.Email) != "" {
+			return customerDisplayName(cust), cust.Email
+		}
+	}
+	if emp, err := s.employees.GetEmployee(ctx, userID); err == nil && emp != nil {
+		return formatEmployeeName(emp), emp.Email
+	}
+	return nil, nil
+}
+
+// publishOrderAuditEvent mirrors OrderCreationServiceImpl.publishOrderAuditEvent
+// (WP-2 / Issue 9): ORDER_APPROVED / ORDER_DECLINED with a SYSTEM actor for the
+// auto-decline path. Recorded by a direct local insert (the audit sink is
+// in-process), called AFTER the decision transaction commits — best-effort,
+// audit must never break the business flow.
+func (s *Service) publishOrderAuditEvent(ctx context.Context, order *Order, actorID int64, approved bool) {
+	if s.auditor == nil {
+		return
+	}
+	var auditActorID *int64
+	actorName := "SYSTEM"
+	if actorID != systemApproval {
+		id := actorID
+		auditActorID = &id
+		actorName = s.resolveActorName(ctx, actorID)
+	}
+	actionType := audit.ActionOrderDeclined
+	details := "Order odbijen (PENDING -> DECLINED)"
+	if approved {
+		actionType = audit.ActionOrderApproved
+		details = "Order odobren (PENDING -> APPROVED)"
+	}
+	targetType := "ORDER"
+	targetID := fmt.Sprintf("%d", order.ID)
+	ts := time.Now().UnixMilli()
+	s.auditor.RecordBestEffort(ctx, audit.Event{
+		ActorID:    auditActorID,
+		ActorName:  &actorName,
+		ActionType: actionType,
+		TargetType: &targetType,
+		TargetID:   &targetID,
+		Details:    &details,
+		Timestamp:  &ts,
+	})
+}
+
+// resolveActorName mirrors resolveActorName: the employee's display name, or
+// the raw actor id string when the lookup fails.
+func (s *Service) resolveActorName(ctx context.Context, actorID int64) string {
+	if emp, err := s.employees.GetEmployee(ctx, actorID); err == nil && emp != nil {
+		if name := formatEmployeeName(emp); name != nil {
+			return *name
+		}
+	}
+	return fmt.Sprintf("%d", actorID)
+}
+
+// customerDisplayName mirrors OrderEventNotifier.formatCustomerName: trimmed
+// "first last", or nil when empty.
+func customerDisplayName(c *clients.Customer) *string {
+	var first, last string
+	if f := c.First(); f != nil {
+		first = strings.TrimSpace(*f)
+	}
+	if l := c.Last(); l != nil {
+		last = strings.TrimSpace(*l)
+	}
+	full := strings.TrimSpace(first + " " + last)
+	if full == "" {
+		return nil
+	}
+	return &full
 }
 
 // --- Small helpers --------------------------------------------------------

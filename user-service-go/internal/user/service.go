@@ -614,10 +614,7 @@ func (s *Service) publishPermissionAuditIfChanged(ctx context.Context, employee 
 	if principal, ok := platform.PrincipalFromContext(ctx); ok {
 		id := principal.ID
 		actorID = &id
-		actorName = strings.TrimSpace(principal.Email)
-		if actorName == "" {
-			actorName = fmt.Sprintf("USER_%d", principal.ID)
-		}
+		actorName = s.resolveAuditActorName(ctx, principal)
 	}
 	event := auditEvent{
 		ActorID:    actorID,
@@ -631,6 +628,27 @@ func (s *Service) publishPermissionAuditIfChanged(ctx context.Context, employee 
 	if err := s.pub.Publish(ctx, "audit.employee_permissions_changed", event); err != nil {
 		slog.Default().Error("audit publish failed", "routingKey", "audit.employee_permissions_changed", "error", err)
 	}
+}
+
+// resolveAuditActorName mirrors CrudServiceImplementation.resolveActorName:
+// the actor's full name from the DB, then the JWT email/subject (the Go login
+// token carries the email in "sub"), then USER_<id> as the last resort.
+func (s *Service) resolveAuditActorName(ctx context.Context, principal platform.Principal) string {
+	if s.repo != nil {
+		if actor, err := s.repo.EmployeeByID(ctx, principal.ID); err == nil {
+			fullName := strings.TrimSpace(strings.TrimSpace(actor.Ime) + " " + strings.TrimSpace(actor.Prezime))
+			if fullName != "" {
+				return fullName
+			}
+		}
+	}
+	if email := strings.TrimSpace(principal.Email); email != "" {
+		return email
+	}
+	if subject := strings.TrimSpace(principal.Subject); subject != "" {
+		return subject
+	}
+	return fmt.Sprintf("USER_%d", principal.ID)
 }
 
 func sortedUnique(values []string) []string {
