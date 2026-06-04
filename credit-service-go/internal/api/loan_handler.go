@@ -9,14 +9,13 @@ import (
 	"Banka1Back/credit-service-go/internal/auth"
 	"Banka1Back/credit-service-go/internal/dto"
 	"Banka1Back/credit-service-go/internal/model"
-	"Banka1Back/credit-service-go/internal/service"
 )
 
 type LoanHandler struct {
-	loanService *service.LoanService
+	loanService CreditService
 }
 
-func NewLoanHandler(loanService *service.LoanService) *LoanHandler {
+func NewLoanHandler(loanService CreditService) *LoanHandler {
 	return &LoanHandler{loanService: loanService}
 }
 

@@ -1,4 +1,0 @@
-rootProject.name = 'notification-service'
-
-include ':company-observability-starter'
-project(':company-observability-starter').projectDir = file('../company-observability-starter')

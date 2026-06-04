@@ -307,3 +307,41 @@ func TestEffectiveUsername_EmptyWhenAbsent(t *testing.T) {
 	req := &dto.NotificationRequest{}
 	assert.Equal(t, "", req.EffectiveUsername())
 }
+
+// ---------------------------------------------------------------------------
+// Dispatcher.Handle — ignored routing keys (card.create, card.deactivate)
+// ---------------------------------------------------------------------------
+
+func TestDispatcher_IgnoredRoutingKey_AcksWithoutHandling(t *testing.T) {
+	t.Parallel()
+	cases := []string{"card.create", "card.deactivate"}
+	for _, key := range cases {
+		key := key
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+			h := &stubDeliveryHandler{}
+			d := newDispatcher(h)
+			req := &dto.NotificationRequest{}
+			err := d.Handle(context.Background(), req, key)
+			require.NoError(t, err)
+			assert.Equal(t, 0, h.handleIncomingCalls, "HandleIncoming must not be called for ignored key")
+			assert.Equal(t, 0, h.persistAuditCalls, "PersistUnsupportedAudit must not be called for ignored key")
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher.Handle — push-only type with missing email passes through
+// ---------------------------------------------------------------------------
+
+func TestDispatcher_PushOnlyType_MissingEmail_PassesThrough(t *testing.T) {
+	t.Parallel()
+	h := &stubDeliveryHandler{}
+	d := newDispatcher(h)
+
+	req := &dto.NotificationRequest{ClientID: 42}
+	err := d.Handle(context.Background(), req, "price.alert_triggered")
+	require.NoError(t, err)
+	assert.Equal(t, 1, h.handleIncomingCalls)
+	assert.Equal(t, model.NotificationTypePriceAlertTriggered, h.lastNotificationType)
+}

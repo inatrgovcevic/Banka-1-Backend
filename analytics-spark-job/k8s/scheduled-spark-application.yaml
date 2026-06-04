@@ -16,7 +16,7 @@ spec:
     image: banka1/analytics-spark-job:latest
     imagePullPolicy: IfNotPresent
     mainApplicationFile: local:///opt/spark/work-dir/analytics_job.py
-    sparkVersion: 3.5.3
+    sparkVersion: "3.5.3"
     restartPolicy:
       type: OnFailure
       onFailureRetries: 1

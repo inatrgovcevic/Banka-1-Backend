@@ -6,23 +6,20 @@ import (
 	"time"
 
 	"Banka1Back/credit-service-go/internal/auth"
-	"Banka1Back/credit-service-go/internal/client"
 	"Banka1Back/credit-service-go/internal/dto"
-	"Banka1Back/credit-service-go/internal/messaging"
 	"Banka1Back/credit-service-go/internal/model"
-	"Banka1Back/credit-service-go/internal/store"
 
 	"github.com/shopspring/decimal"
 )
 
 type LoanService struct {
-	loanRequestStore    *store.LoanRequestStore
-	loanStore           *store.LoanStore
-	installmentStore    *store.InstallmentStore
-	accountClient       *client.AccountClient
-	rabbitClient        *messaging.RabbitClient
-	exchangeClient      *client.ExchangeClient
-	clientServiceClient *client.ClientServiceClient
+	loanRequestRepo     LoanRequestRepository
+	loanRepo            LoanRepository
+	installmentRepo     InstallmentRepository
+	accountGateway      AccountGateway
+	notifier            NotificationPublisher
+	exchangeGateway     ExchangeGateway
+	clientGateway       ClientGateway
 }
 
 type EmailEvent struct {
@@ -32,27 +29,27 @@ type EmailEvent struct {
 }
 
 func NewLoanService(
-	loanRequestStore *store.LoanRequestStore,
-	loanStore *store.LoanStore,
-	installmentStore *store.InstallmentStore,
-	accountClient *client.AccountClient,
-	rabbitClient *messaging.RabbitClient,
-	exchangeClient *client.ExchangeClient,
-	clientServiceClient *client.ClientServiceClient,
+	loanRequestRepo LoanRequestRepository,
+	loanRepo LoanRepository,
+	installmentRepo InstallmentRepository,
+	accountGateway AccountGateway,
+	notifier NotificationPublisher,
+	exchangeGateway ExchangeGateway,
+	clientGateway ClientGateway,
 ) *LoanService {
 	return &LoanService{
-		loanRequestStore:    loanRequestStore,
-		loanStore:           loanStore,
-		installmentStore:    installmentStore,
-		accountClient:       accountClient,
-		rabbitClient:        rabbitClient,
-		exchangeClient:      exchangeClient,
-		clientServiceClient: clientServiceClient,
+		loanRequestRepo: loanRequestRepo,
+		loanRepo:        loanRepo,
+		installmentRepo: installmentRepo,
+		accountGateway:  accountGateway,
+		notifier:        notifier,
+		exchangeGateway: exchangeGateway,
+		clientGateway:   clientGateway,
 	}
 }
 
 func (s *LoanService) Request(ctx context.Context, user auth.User, request dto.LoanRequestDTO) (dto.LoanRequestResponseDTO, error) {
-	accountDetails, err := s.accountClient.GetDetails(request.AccountNumber)
+	accountDetails, err := s.accountGateway.GetDetails(request.AccountNumber)
 	if err != nil {
 		return dto.LoanRequestResponseDTO{}, err
 	}
@@ -82,12 +79,12 @@ func (s *LoanService) Request(ctx context.Context, user auth.User, request dto.L
 		Username:                accountDetails.Username,
 	}
 
-	saved, err := s.loanRequestStore.Save(ctx, loanRequest)
+	saved, err := s.loanRequestRepo.Save(ctx, loanRequest)
 	if err != nil {
 		return dto.LoanRequestResponseDTO{}, err
 	}
 
-	_ = s.rabbitClient.PublishJSON(ctx, "credit.requested", EmailEvent{
+	_ = s.notifier.PublishJSON(ctx, "credit.requested", EmailEvent{
 		UserEmail: accountDetails.Email,
 		Username:  accountDetails.Username,
 		EmailType: "credit.requested",
@@ -106,7 +103,7 @@ func (s *LoanService) FindAllLoanRequests(
 	page int,
 	size int,
 ) (dto.PageResponse[model.LoanRequest], error) {
-	requests, total, err := s.loanRequestStore.FindAll(ctx, loanType, accountNumber, page, size)
+	requests, total, err := s.loanRequestRepo.FindAll(ctx, loanType, accountNumber, page, size)
 	if err != nil {
 		return dto.PageResponse[model.LoanRequest]{}, err
 	}
@@ -124,7 +121,7 @@ func (s *LoanService) Confirmation(ctx context.Context, id int64, status model.S
 		return "", errors.New("mozes da saljes samo status approved ili declined")
 	}
 
-	loanRequest, err := s.loanRequestStore.FindByID(ctx, id)
+	loanRequest, err := s.loanRequestRepo.FindByID(ctx, id)
 	if err != nil {
 		return "", err
 	}
@@ -134,7 +131,7 @@ func (s *LoanService) Confirmation(ctx context.Context, id int64, status model.S
 	}
 
 	if status == model.StatusDeclined {
-		updated, err := s.loanRequestStore.UpdateStatusIfPending(ctx, id, status)
+		updated, err := s.loanRequestRepo.UpdateStatusIfPending(ctx, id, status)
 		if err != nil {
 			return "", err
 		}
@@ -143,7 +140,7 @@ func (s *LoanService) Confirmation(ctx context.Context, id int64, status model.S
 			return "", errors.New("loan request ne postoji ili nije u PENDING statusu")
 		}
 
-		_ = s.rabbitClient.PublishJSON(ctx, "credit.declined", EmailEvent{
+		_ = s.notifier.PublishJSON(ctx, "credit.declined", EmailEvent{
 			UserEmail: loanRequest.UserEmail,
 			Username:  loanRequest.Username,
 			EmailType: "credit.declined",
@@ -155,7 +152,7 @@ func (s *LoanService) Confirmation(ctx context.Context, id int64, status model.S
 	interestAmount := loanRequest.Amount
 
 	if loanRequest.Currency != model.CurrencyRSD {
-		conversion, err := s.exchangeClient.Calculate(
+		conversion, err := s.exchangeGateway.Calculate(
 			string(loanRequest.Currency),
 			"RSD",
 			loanRequest.Amount,
@@ -185,7 +182,7 @@ func (s *LoanService) Confirmation(ctx context.Context, id int64, status model.S
 	agreementDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	nextInstallmentDate := agreementDate.AddDate(0, 1, 0)
 
-	err = s.accountClient.TransactionFromBank(loanRequest.AccountNumber, loanRequest.Amount)
+	err = s.accountGateway.TransactionFromBank(loanRequest.AccountNumber, loanRequest.Amount)
 	if err != nil {
 		return "", err
 	}
@@ -221,17 +218,17 @@ func (s *LoanService) Confirmation(ctx context.Context, id int64, status model.S
 		Retry:                 0,
 	}
 
-	_, err = s.loanRequestStore.ApproveWithLoanAndInstallment(ctx, id, loan, installment)
+	_, err = s.loanRequestRepo.ApproveWithLoanAndInstallment(ctx, id, loan, installment)
 	if err != nil {
 		return "", err
 	}
 
-	err = s.clientServiceClient.AddMarginPermission(loanRequest.ClientID)
+	err = s.clientGateway.AddMarginPermission(loanRequest.ClientID)
 	if err != nil {
 		return "", err
 	}
 
-	_ = s.rabbitClient.PublishJSON(ctx, "credit.approved", EmailEvent{
+	_ = s.notifier.PublishJSON(ctx, "credit.approved", EmailEvent{
 		UserEmail: loanRequest.UserEmail,
 		Username:  loanRequest.Username,
 		EmailType: "credit.approved",
@@ -246,7 +243,7 @@ func (s *LoanService) FindClientLoans(
 	page int,
 	size int,
 ) (dto.PageResponse[dto.LoanResponseDTO], error) {
-	loans, total, err := s.loanStore.FindByClientID(ctx, user.ID, page, size)
+	loans, total, err := s.loanRepo.FindByClientID(ctx, user.ID, page, size)
 	if err != nil {
 		return dto.PageResponse[dto.LoanResponseDTO]{}, err
 	}
@@ -284,7 +281,7 @@ func (s *LoanService) GetLoanInfo(
 	user auth.User,
 	loanID int64,
 ) (dto.LoanInfoResponseDTO, error) {
-	loan, err := s.loanStore.FindByID(ctx, loanID)
+	loan, err := s.loanRepo.FindByID(ctx, loanID)
 	if err != nil {
 		return dto.LoanInfoResponseDTO{}, err
 	}
@@ -293,7 +290,7 @@ func (s *LoanService) GetLoanInfo(
 		return dto.LoanInfoResponseDTO{}, errors.New("nemas dozvolu za ovu metodu")
 	}
 
-	installments, err := s.installmentStore.FindByLoanID(ctx, loanID)
+	installments, err := s.installmentRepo.FindByLoanID(ctx, loanID)
 	if err != nil {
 		return dto.LoanInfoResponseDTO{}, err
 	}
@@ -339,7 +336,7 @@ func (s *LoanService) FindAllLoans(
 	page int,
 	size int,
 ) (dto.PageResponse[dto.LoanResponseDTO], error) {
-	loans, total, err := s.loanStore.FindAllWithFilters(ctx, loanType, accountNumber, status, page, size)
+	loans, total, err := s.loanRepo.FindAllWithFilters(ctx, loanType, accountNumber, status, page, size)
 	if err != nil {
 		return dto.PageResponse[dto.LoanResponseDTO]{}, err
 	}
@@ -373,26 +370,26 @@ func (s *LoanService) FindAllLoans(
 }
 
 func (s *LoanService) ProcessDueInstallments(ctx context.Context) error {
-	installments, err := s.installmentStore.FindDueUnpaid(ctx)
+	installments, err := s.installmentRepo.FindDueUnpaid(ctx)
 	if err != nil {
 		return err
 	}
 
 	for _, installment := range installments {
-		loan, err := s.loanStore.FindByID(ctx, installment.LoanID)
+		loan, err := s.loanRepo.FindByID(ctx, installment.LoanID)
 		if err != nil {
 			return err
 		}
 
-		err = s.accountClient.TransactionToBank(loan.AccountNumber, installment.InstallmentAmount)
+		err = s.accountGateway.TransactionToBank(loan.AccountNumber, installment.InstallmentAmount)
 		if err != nil {
-			err = s.installmentStore.MarkRetryOrOverdue(ctx, installment)
+			err = s.installmentRepo.MarkRetryOrOverdue(ctx, installment)
 			if err != nil {
 				return err
 			}
 
 			if installment.Retry > 0 || installment.PaymentStatus == model.PaymentOverdue {
-				err = s.loanStore.MarkOverdue(ctx, installment.LoanID)
+				err = s.loanRepo.MarkOverdue(ctx, installment.LoanID)
 				if err != nil {
 					return err
 				}
@@ -406,7 +403,7 @@ func (s *LoanService) ProcessDueInstallments(ctx context.Context) error {
 		newRemainingDebt := loan.RemainingDebt.Sub(principalPart)
 		newInstallmentCount := loan.InstallmentCount + 1
 
-		err = s.installmentStore.MarkPaid(ctx, installment.ID)
+		err = s.installmentRepo.MarkPaid(ctx, installment.ID)
 		if err != nil {
 			return err
 		}
@@ -429,7 +426,7 @@ func (s *LoanService) ProcessDueInstallments(ctx context.Context) error {
 			val := interest.EffectiveInterestRate.Mul(stepen).Div(stepen.Sub(one)).Round(10)
 			monthlyRate := newRemainingDebt.Mul(val).Round(4)
 
-			err = s.loanStore.UpdateAfterInstallmentPayment(
+			err = s.loanRepo.UpdateAfterInstallmentPayment(
 				ctx,
 				loan.ID,
 				newRemainingDebt,
@@ -452,12 +449,12 @@ func (s *LoanService) ProcessDueInstallments(ctx context.Context) error {
 				Retry:                 0,
 			}
 
-			err = s.installmentStore.Create(ctx, nextInstallment)
+			err = s.installmentRepo.Create(ctx, nextInstallment)
 			if err != nil {
 				return err
 			}
 		} else {
-			err = s.loanStore.UpdateAfterInstallmentPayment(
+			err = s.loanRepo.UpdateAfterInstallmentPayment(
 				ctx,
 				loan.ID,
 				decimal.Zero,

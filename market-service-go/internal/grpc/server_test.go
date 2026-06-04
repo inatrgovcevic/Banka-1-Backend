@@ -53,3 +53,35 @@ func TestConvertRPC(t *testing.T) {
 		t.Fatal("expected non-empty grpc response")
 	}
 }
+
+func TestConvertRPC_InvalidAmount_ReturnsError(t *testing.T) {
+	app := &httpapi.App{
+		Config: platform.Config{FX: platform.FXConfig{CommissionPercentage: "0.70"}},
+	}
+	app.FXService = fx.NewService(app.Config, &fx.Repository{})
+	server := NewServer(app)
+	listener := bufconn.Listen(1024 * 1024)
+	go func() { _ = server.Serve(listener) }()
+	defer server.Stop()
+
+	conn, err := grpc.DialContext(context.Background(), "bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return listener.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("dial grpc: %v", err)
+	}
+	defer conn.Close()
+
+	client := marketv1.NewMarketServiceClient(conn)
+	_, err = client.Convert(context.Background(), &marketv1.ConvertRequest{
+		FromCurrency: "USD",
+		ToCurrency:   "EUR",
+		Amount:       "not-a-number",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid amount")
+	}
+}

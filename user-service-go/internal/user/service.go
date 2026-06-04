@@ -22,7 +22,7 @@ var (
 )
 
 type Service struct {
-	repo  *Repository
+	repo  UserRepo
 	auth  *platform.JWTService
 	pub   platform.NotificationPublisher
 	cfg   platform.UserConfig
@@ -40,7 +40,7 @@ type auditEvent struct {
 	Timestamp  int64  `json:"timestamp"`
 }
 
-func NewService(repo *Repository, auth *platform.JWTService, pub platform.NotificationPublisher, cfg platform.UserConfig, svc platform.ServicesConfig, email platform.EmailConfig) *Service {
+func NewService(repo UserRepo, auth *platform.JWTService, pub platform.NotificationPublisher, cfg platform.UserConfig, svc platform.ServicesConfig, email platform.EmailConfig) *Service {
 	return &Service{repo: repo, auth: auth, pub: pub, cfg: cfg, svc: svc, email: email}
 }
 
