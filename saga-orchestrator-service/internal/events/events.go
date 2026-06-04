@@ -79,7 +79,7 @@ type FundSubscribeRequested struct {
 type FundRedeemRequested struct {
 	TransactionID     string          `json:"transactionId"`
 	Amount            decimal.Decimal `json:"amount"`
-	FromAccountNumber string          `json:"fromAccountNumber"` // fund account (debit side)
+	FundAccountNumber string          `json:"fundAccountNumber"` // fund account (debit side)
 	ToAccountNumber   string          `json:"toAccountNumber"`   // client account (credit side)
 	FundID            int64           `json:"fundId"`
 }

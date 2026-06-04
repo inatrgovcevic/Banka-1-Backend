@@ -43,6 +43,7 @@ func NewContainer(cfg config.Config, db *sql.DB) *Container {
 	cardCalc := card.NewMasterCardFeeCalculator(cfg.MasterCardFXFeePercent, cfg.MasterCardNetworkFee)
 	market := NewMarketClient(cfg, http.DefaultClient)
 	marginAccounts := NewMarginAccountService(db, account.NumberGenerator{})
+	accountSvc.SetMarginAccounts(marginAccounts)
 	internal := NewInternalService(db, accountSvc, market)
 	verificationSvc := NewVerificationService(db, cfg, rabbit)
 	cardSvc := NewCardService(db, cfg, accountSvc, verificationSvc, rabbit)

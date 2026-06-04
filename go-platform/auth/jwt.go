@@ -31,6 +31,30 @@ func (s *Service) GenerateAccessToken(id int64, subject, role string, permission
 	return s.Generate(id, subject, "", role, permissions, s.cfg.AccessTokenDuration)
 }
 
+// GenerateAccessTokenWithName mints an HS256 JWT and adds a "name" claim with
+// the user's full name. Used by ClientLogin and EmployeeLogin so that downstream
+// services (e.g. trading-service OTC history) can read the actor's display name.
+func (s *Service) GenerateAccessTokenWithName(id int64, subject, name, role string, permissions []string) (string, error) {
+	token, err := s.Generate(id, subject, "", role, permissions, s.cfg.AccessTokenDuration)
+	if err != nil || name == "" {
+		return token, err
+	}
+	// Re-sign with the name claim injected.
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss":                  s.cfg.Issuer,
+		"sub":                  subject,
+		"iat":                  now.Unix(),
+		"exp":                  now.Add(s.cfg.AccessTokenDuration).Unix(),
+		s.cfg.IDClaim:          id,
+		s.cfg.RolesClaim:       role,
+		s.cfg.PermissionsClaim: permissions,
+		"name":                 name,
+	}
+	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return t.SignedString([]byte(s.cfg.Secret))
+}
+
 // GenerateServiceToken mints a JWT carrying the SERVICE role. Used for
 // service-to-service calls (matches Java security-lib's hasRole('SERVICE')
 // flows).

@@ -89,6 +89,28 @@ func (c *AccountClient) ExchangeBuy(ctx context.Context, req OneSidedTransaction
 	return c.base.doJSON(ctx, http.MethodPost, "/internal/accounts/exchange/buy", nil, req, nil)
 }
 
+// StockBuyMarginTransaction calls POST /transactions/stockBuyMarginTransaction.
+// Used for margin BUY orders: banking-core debits clientPart from the user's
+// margin account initialMargin and loans bankPart from the bank.
+func (c *AccountClient) StockBuyMarginTransaction(ctx context.Context, userID int64, amount decimal.Decimal) error {
+	body := map[string]any{
+		"userId": userID,
+		"amount": amount,
+	}
+	return c.base.doJSON(ctx, http.MethodPost, "/transactions/stockBuyMarginTransaction", nil, body, nil)
+}
+
+// StockSellMarginTransaction calls POST /transactions/stockSellMarginTransaction.
+// Used for margin SELL orders: banking-core credits back clientPart and reduces
+// the loan value by bankPart.
+func (c *AccountClient) StockSellMarginTransaction(ctx context.Context, userID int64, amount decimal.Decimal) error {
+	body := map[string]any{
+		"userId": userID,
+		"amount": amount,
+	}
+	return c.base.doJSON(ctx, http.MethodPost, "/transactions/stockSellMarginTransaction", nil, body, nil)
+}
+
 // ExchangeSell mirrors accountClient.exchangeSell(OneSidedTransactionDto):
 // POST /internal/accounts/exchange/sell (one-sided credit, GHI #199). Body ignored.
 func (c *AccountClient) ExchangeSell(ctx context.Context, req OneSidedTransaction) error {

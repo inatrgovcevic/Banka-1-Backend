@@ -87,7 +87,7 @@ func NewRouter(d ServerDeps) http.Handler {
 	if d.OtcOutbound != nil {
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireJWT(d.JWTSecret))
-			r.Use(auth.RequirePermission("OTC_TRADE", "ROLE_ADMIN", "ROLE_SUPERVISOR"))
+			r.Use(auth.RequirePermission("OTC_TRADE", "CLIENT_OTC_TRADE", "ROLE_ADMIN", "ROLE_SUPERVISOR"))
 			r.Route("/api/interbank/otc", func(r chi.Router) {
 				r.Post("/negotiations", d.OtcOutbound.Create)
 				r.Get("/negotiations", d.OtcOutbound.List)
@@ -134,7 +134,7 @@ func NewRouterWithMock(d ServerDeps, mountMock func(chi.Router)) http.Handler {
 	if d.OtcOutbound != nil {
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireJWT(d.JWTSecret))
-			r.Use(auth.RequirePermission("OTC_TRADE", "ROLE_ADMIN", "ROLE_SUPERVISOR"))
+			r.Use(auth.RequirePermission("OTC_TRADE", "CLIENT_OTC_TRADE", "ROLE_ADMIN", "ROLE_SUPERVISOR"))
 			r.Route("/api/interbank/otc", func(r chi.Router) {
 				r.Post("/negotiations", d.OtcOutbound.Create)
 				r.Get("/negotiations", d.OtcOutbound.List)

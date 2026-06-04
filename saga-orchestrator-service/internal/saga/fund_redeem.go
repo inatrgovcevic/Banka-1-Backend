@@ -36,9 +36,10 @@ func (o *Orchestrator) HandleFundRedeem(ctx context.Context, evt events.FundRede
 				"correlationId", correlationID, "state", inst.State)
 			return nil
 		}
-		o.log.Warn("FUND_REDEEM in unexpected state; skipping",
+		// Crash recovery: re-run (all downstream calls are idempotent per correlationID).
+		// advanceState's optimistic lock rejects any true concurrent duplicate.
+		o.log.Warn("FUND_REDEEM crash recovery: re-running IN_PROGRESS saga",
 			"correlationId", correlationID, "state", inst.State)
-		return nil
 	}
 
 	if err := o.advanceState(ctx, inst); err != nil {
@@ -48,7 +49,7 @@ func (o *Orchestrator) HandleFundRedeem(ctx context.Context, evt events.FundRede
 
 	transferID, err := o.bc.InternalTransfer(
 		ctx,
-		evt.FromAccountNumber, evt.ToAccountNumber,
+		evt.FundAccountNumber, evt.ToAccountNumber,
 		evt.Amount, correlationID,
 	)
 	if err != nil {

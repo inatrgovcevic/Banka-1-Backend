@@ -143,7 +143,7 @@ func (s *Service) CounterOffer(ctx context.Context, offerID, actorID int64, in C
 // offer FOR UPDATE lock; a violation is InsufficientPublicStock → 400. On success
 // an OptionContract (PENDING_PREMIUM) is created, the seller's stock reserved, and
 // the premium-transfer saga published after commit.
-func (s *Service) Accept(ctx context.Context, offerID, actorID int64) (*OtcOfferDto, error) {
+func (s *Service) Accept(ctx context.Context, offerID, actorID int64, actorName *string) (*OtcOfferDto, error) {
 	var offer *OtcOffer
 	var contractID int64
 	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
@@ -187,7 +187,7 @@ func (s *Service) Accept(ctx context.Context, offerID, actorID int64) (*OtcOffer
 		}
 
 		o.Status = OfferAccepted
-		modifiedBy := "user#" + itoa(actorID)
+		modifiedBy := resolveActorName(actorID, actorName)
 		o.ModifiedBy = &modifiedBy
 		if err := s.repo.UpdateOffer(ctx, tx, o); err != nil {
 			return err
@@ -236,7 +236,7 @@ func (s *Service) Accept(ctx context.Context, offerID, actorID int64) (*OtcOffer
 
 // Reject mirrors OtcService.reject: any participant may reject from any state (no
 // status guard in Java).
-func (s *Service) Reject(ctx context.Context, offerID, actorID int64) (*OtcOfferDto, error) {
+func (s *Service) Reject(ctx context.Context, offerID, actorID int64, actorName *string) (*OtcOfferDto, error) {
 	var offer *OtcOffer
 	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
 		o, err := s.requireOfferForUpdate(ctx, tx, offerID)
@@ -248,7 +248,7 @@ func (s *Service) Reject(ctx context.Context, offerID, actorID int64) (*OtcOffer
 			return api.NewOtcError(http.StatusConflict, "Korisnik "+itoa(actorID)+" nije ucesnik ponude.")
 		}
 		o.Status = OfferRejected
-		modifiedBy := "user#" + itoa(actorID)
+		modifiedBy := resolveActorName(actorID, actorName)
 		o.ModifiedBy = &modifiedBy
 		if err := s.repo.UpdateOffer(ctx, tx, o); err != nil {
 			return err
@@ -268,7 +268,7 @@ func (s *Service) Reject(ctx context.Context, offerID, actorID int64) (*OtcOffer
 
 // Withdraw mirrors OtcService.withdraw: the party that sent the pending offer
 // retracts it (buyer while PENDING_SELLER, seller while PENDING_BUYER).
-func (s *Service) Withdraw(ctx context.Context, offerID, actorID int64) (*OtcOfferDto, error) {
+func (s *Service) Withdraw(ctx context.Context, offerID, actorID int64, actorName *string) (*OtcOfferDto, error) {
 	var offer *OtcOffer
 	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
 		o, err := s.requireOfferForUpdate(ctx, tx, offerID)
@@ -288,7 +288,7 @@ func (s *Service) Withdraw(ctx context.Context, offerID, actorID int64) (*OtcOff
 			return api.NewOtcError(http.StatusConflict, "Prodavac moze povuci samo dok je ponuda PENDING_BUYER.")
 		}
 		o.Status = OfferWithdrawn
-		modifiedBy := "user#" + itoa(actorID)
+		modifiedBy := resolveActorName(actorID, actorName)
 		o.ModifiedBy = &modifiedBy
 		if err := s.repo.UpdateOffer(ctx, tx, o); err != nil {
 			return err
@@ -897,7 +897,16 @@ func exposeTooMuchMsg(requested, quantity, reserved, maxAllowed int) string {
 		strconv.Itoa(maxAllowed) + "."
 }
 
-func itoa(n int64) string                         { return strconv.FormatInt(n, 10) }
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// resolveActorName returns the actor's display name from the token claim when
+// available, falling back to "user#<id>" so the field is never empty.
+func resolveActorName(actorID int64, name *string) string {
+	if name != nil && *name != "" {
+		return *name
+	}
+	return "user#" + itoa(actorID)
+}
 func intPtr(n int) *int                           { return &n }
 func strPtr(s string) *string                     { return &s }
 func decPtrOf(d decimal.Decimal) *decimal.Decimal { return &d }

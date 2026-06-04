@@ -622,7 +622,7 @@ func TestHandleFundRedeem_HappyPath(t *testing.T) {
 	evt := events.FundRedeemRequested{
 		TransactionID:     "txn-redeem-001",
 		Amount:            decimal.RequireFromString("2000"),
-		FromAccountNumber: "111000300000000003",
+		FundAccountNumber: "111000300000000003",
 		ToAccountNumber:   "111000100000000001",
 		FundID:            7,
 	}
@@ -650,7 +650,7 @@ func TestHandleFundRedeem_TransferFails(t *testing.T) {
 	evt := events.FundRedeemRequested{
 		TransactionID:     "txn-redeem-002",
 		Amount:            decimal.RequireFromString("100"),
-		FromAccountNumber: "111000300000000003",
+		FundAccountNumber: "111000300000000003",
 		ToAccountNumber:   "111000100000000001",
 		FundID:            7,
 	}

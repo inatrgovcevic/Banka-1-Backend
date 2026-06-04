@@ -270,7 +270,7 @@ func run() error {
 	// -------------------------------------------------------------------------
 	// Admin HTTP server
 	// -------------------------------------------------------------------------
-	adminHandler := api.NewAdminHandler(sagaStore)
+	adminHandler := api.NewAdminHandler(sagaStore, orch)
 	router := api.NewRouter(adminHandler)
 
 	httpAddr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)

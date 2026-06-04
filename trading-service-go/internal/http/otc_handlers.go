@@ -107,7 +107,7 @@ func (h *Handlers) OtcAcceptOffer(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, err)
 		return
 	}
-	dto, err := h.app.Otc.Accept(r.Context(), offerID, principal.ID)
+	dto, err := h.app.Otc.Accept(r.Context(), offerID, principal.ID, tokenNameClaim(principal))
 	if err != nil {
 		writeDomainError(w, r, err)
 		return
@@ -123,7 +123,7 @@ func (h *Handlers) OtcRejectOffer(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, err)
 		return
 	}
-	dto, err := h.app.Otc.Reject(r.Context(), offerID, principal.ID)
+	dto, err := h.app.Otc.Reject(r.Context(), offerID, principal.ID, tokenNameClaim(principal))
 	if err != nil {
 		writeDomainError(w, r, err)
 		return
@@ -139,7 +139,7 @@ func (h *Handlers) OtcWithdrawOffer(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, r, err)
 		return
 	}
-	dto, err := h.app.Otc.Withdraw(r.Context(), offerID, principal.ID)
+	dto, err := h.app.Otc.Withdraw(r.Context(), offerID, principal.ID, tokenNameClaim(principal))
 	if err != nil {
 		writeDomainError(w, r, err)
 		return

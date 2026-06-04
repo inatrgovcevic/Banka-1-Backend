@@ -176,7 +176,9 @@ func (s *TransactionService) FindPayments(ctx context.Context, principal Princip
 				return Page[TransactionResponse]{}, BadRequest("Nisi vlasnik racuna")
 			}
 		}
-		add("(from_account_number = $%d OR to_account_number = $%d)", filter.AccountNumber)
+		args = append(args, filter.AccountNumber)
+		n := len(args)
+		clauses = append(clauses, fmt.Sprintf("(from_account_number = $%d OR to_account_number = $%d)", n, n))
 	}
 	if filter.Status != "" {
 		switch strings.ToUpper(filter.Status) {

@@ -64,7 +64,8 @@ func (s *Service) EmployeeLogin(ctx context.Context, req LoginRequest) (TokenRes
 		return TokenResponse{}, ErrInvalidLogin
 	}
 	permissions := s.repo.EmployeePermissions(ctx, employee.ID, employee.Role)
-	token, err := s.auth.GenerateAccessToken(employee.ID, employee.Email, employee.Role, permissions)
+	fullName := strings.TrimSpace(employee.Ime + " " + employee.Prezime)
+	token, err := s.auth.GenerateAccessTokenWithName(employee.ID, employee.Email, fullName, employee.Role, permissions)
 	if err != nil {
 		return TokenResponse{}, err
 	}
@@ -86,7 +87,8 @@ func (s *Service) EmployeeRefresh(ctx context.Context, refresh string) (TokenRes
 		return TokenResponse{}, ErrInvalidToken
 	}
 	permissions := s.repo.EmployeePermissions(ctx, employee.ID, employee.Role)
-	token, err := s.auth.GenerateAccessToken(employee.ID, employee.Email, employee.Role, permissions)
+	fullName := strings.TrimSpace(employee.Ime + " " + employee.Prezime)
+	token, err := s.auth.GenerateAccessTokenWithName(employee.ID, employee.Email, fullName, employee.Role, permissions)
 	if err != nil {
 		return TokenResponse{}, err
 	}
@@ -113,7 +115,8 @@ func (s *Service) ClientLogin(ctx context.Context, req LoginRequest) (ClientLogi
 		return ClientLoginResponse{}, ErrInvalidLogin
 	}
 	permissions := s.repo.ClientPermissions(ctx, client.ID, client.Role)
-	token, err := s.auth.GenerateAccessToken(client.ID, client.Email, client.Role, permissions)
+	fullName := strings.TrimSpace(client.Ime + " " + client.Prezime)
+	token, err := s.auth.GenerateAccessTokenWithName(client.ID, client.Email, fullName, client.Role, permissions)
 	if err != nil {
 		return ClientLoginResponse{}, err
 	}

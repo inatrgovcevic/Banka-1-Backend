@@ -71,6 +71,9 @@ desktop.ini
 # Environment / secrets
 .env
 *.env
+
+# Claude Code
+.claude/
 application-local.properties
 application-local.yml
 application-local.yaml

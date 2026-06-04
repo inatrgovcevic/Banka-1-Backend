@@ -27,6 +27,12 @@ type AccountService struct {
 	tokenCache     *ServiceTokenCache
 	rabbit         *RabbitPublisher
 	automaticCards AutomaticCardCreator
+	marginAccounts *MarginAccountService
+}
+
+// SetMarginAccounts wires the margin account service for availableCredit enrichment.
+func (s *AccountService) SetMarginAccounts(m *MarginAccountService) {
+	s.marginAccounts = m
 }
 
 type AutomaticCardCreator interface {
@@ -34,15 +40,16 @@ type AutomaticCardCreator interface {
 }
 
 type AccountDetails struct {
-	ID               int64           `json:"id"`
-	AccountNumber    string          `json:"accountNumber"`
-	OwnerID          int64           `json:"ownerId"`
-	Currency         string          `json:"currency"`
-	AvailableBalance decimal.Decimal `json:"availableBalance"`
-	Status           string          `json:"status"`
-	AccountType      string          `json:"accountType,omitempty"`
-	Email            string          `json:"email,omitempty"`
-	Username         string          `json:"username,omitempty"`
+	ID               int64            `json:"id"`
+	AccountNumber    string           `json:"accountNumber"`
+	OwnerID          int64            `json:"ownerId"`
+	Currency         string           `json:"currency"`
+	AvailableBalance decimal.Decimal  `json:"availableBalance"`
+	AvailableCredit  *decimal.Decimal `json:"availableCredit,omitempty"`
+	Status           string           `json:"status"`
+	AccountType      string           `json:"accountType,omitempty"`
+	Email            string           `json:"email,omitempty"`
+	Username         string           `json:"username,omitempty"`
 }
 
 type InternalAccountByOwnerCurrencyResponse struct {
@@ -100,7 +107,9 @@ func (s *AccountService) GetByNumber(ctx context.Context, accountNumber string) 
 	if err != nil {
 		return AccountDetails{}, err
 	}
-	return row.details(), nil
+	details := row.details()
+	s.enrichWithMarginCredit(ctx, &details)
+	return details, nil
 }
 
 func (s *AccountService) GetByID(ctx context.Context, id int64) (AccountDetails, error) {
@@ -108,7 +117,23 @@ func (s *AccountService) GetByID(ctx context.Context, id int64) (AccountDetails,
 	if err != nil {
 		return AccountDetails{}, err
 	}
-	return row.details(), nil
+	details := row.details()
+	s.enrichWithMarginCredit(ctx, &details)
+	return details, nil
+}
+
+// enrichWithMarginCredit populates AvailableCredit from the owner's margin account
+// initialMargin, if a margin account exists. Errors are silently ignored — credit
+// enrichment is best-effort and must not break normal account lookups.
+func (s *AccountService) enrichWithMarginCredit(ctx context.Context, d *AccountDetails) {
+	if s.marginAccounts == nil || d.OwnerID <= 0 {
+		return
+	}
+	ma, err := s.marginAccounts.FindByUserID(ctx, d.OwnerID)
+	if err != nil || !ma.Active {
+		return
+	}
+	d.AvailableCredit = &ma.InitialMargin
 }
 
 func (s *AccountService) GetBankAccount(ctx context.Context, currency string) (AccountDetails, error) {

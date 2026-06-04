@@ -359,6 +359,22 @@ func (s *Service) transferFunds(ctx context.Context, order *Order, currency stri
 	if err != nil {
 		return decimal.Zero, err
 	}
+	if order.Margin {
+		// Margin orders: route through banking-core margin transaction instead of
+		// the regular one-sided exchange debit/credit. Banking-core handles the
+		// split between client's initialMargin and the bank-loaned portion.
+		if order.Direction == DirectionBuy {
+			if err := s.account.StockBuyMarginTransaction(ctx, order.UserID, accountAmount); err != nil {
+				return decimal.Zero, err
+			}
+		} else {
+			if err := s.account.StockSellMarginTransaction(ctx, order.UserID, accountAmount); err != nil {
+				return decimal.Zero, err
+			}
+		}
+		return accountAmount, nil
+	}
+
 	req := clients.OneSidedTransaction{
 		AccountNumber: userAccount.Number(),
 		AccountID:     order.AccountID,

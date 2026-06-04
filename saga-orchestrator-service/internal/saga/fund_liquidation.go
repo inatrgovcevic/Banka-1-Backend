@@ -43,9 +43,10 @@ func (o *Orchestrator) HandleFundRedeemWithLiquidation(ctx context.Context, evt 
 				"correlationId", correlationID, "state", inst.State)
 			return nil
 		}
-		o.log.Warn("FUND_LIQUIDATION in unexpected state; skipping",
+		// Crash recovery: re-run (all downstream calls are idempotent per correlationID).
+		// advanceState's optimistic lock rejects any true concurrent duplicate.
+		o.log.Warn("FUND_LIQUIDATION crash recovery: re-running IN_PROGRESS saga",
 			"correlationId", correlationID, "state", inst.State)
-		return nil
 	}
 
 	if err := o.advanceState(ctx, inst); err != nil {

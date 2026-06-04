@@ -31,10 +31,12 @@ package saga
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/shopspring/decimal"
 
+	"github.com/raf-si-2025/banka-1-go/saga-orchestrator-service/internal/events"
 	"github.com/raf-si-2025/banka-1-go/saga-orchestrator-service/internal/store"
 )
 
@@ -248,6 +250,51 @@ func unmarshalLog(b []byte) map[string]string {
 		return make(map[string]string)
 	}
 	return m
+}
+
+// Dispatch re-runs a saga from its stored payload. The instance's current state
+// controls recovery behaviour: IN_PROGRESS triggers crash recovery (same
+// exerciseCorrID), STARTED triggers a normal retry (RetryCount is incremented
+// by the handler). Call UpdateOptimistic before Dispatch if you need to reset
+// the state first (e.g. for admin retry/restart endpoints).
+func (o *Orchestrator) Dispatch(ctx context.Context, inst *store.SagaInstance) error {
+	if inst.Payload == nil {
+		return fmt.Errorf("dispatch: saga %s has no stored payload", inst.ID)
+	}
+	switch inst.SagaType {
+	case "OTC_EXERCISE":
+		var evt events.OtcExerciseRequested
+		if err := json.Unmarshal(inst.Payload, &evt); err != nil {
+			return fmt.Errorf("dispatch OTC_EXERCISE unmarshal: %w", err)
+		}
+		return o.HandleOtcExercise(ctx, evt)
+	case "OTC_PREMIUM_TRANSFER":
+		var evt events.OtcPremiumTransferRequested
+		if err := json.Unmarshal(inst.Payload, &evt); err != nil {
+			return fmt.Errorf("dispatch OTC_PREMIUM_TRANSFER unmarshal: %w", err)
+		}
+		return o.HandleOtcPremiumTransfer(ctx, evt)
+	case "FUND_SUBSCRIBE":
+		var evt events.FundSubscribeRequested
+		if err := json.Unmarshal(inst.Payload, &evt); err != nil {
+			return fmt.Errorf("dispatch FUND_SUBSCRIBE unmarshal: %w", err)
+		}
+		return o.HandleFundSubscribe(ctx, evt)
+	case "FUND_REDEEM":
+		var evt events.FundRedeemRequested
+		if err := json.Unmarshal(inst.Payload, &evt); err != nil {
+			return fmt.Errorf("dispatch FUND_REDEEM unmarshal: %w", err)
+		}
+		return o.HandleFundRedeem(ctx, evt)
+	case "FUND_LIQUIDATION_FOR_REDEMPTION":
+		var evt events.FundRedeemWithLiquidationRequested
+		if err := json.Unmarshal(inst.Payload, &evt); err != nil {
+			return fmt.Errorf("dispatch FUND_LIQUIDATION unmarshal: %w", err)
+		}
+		return o.HandleFundRedeemWithLiquidation(ctx, evt)
+	default:
+		return fmt.Errorf("dispatch: unknown saga type %q", inst.SagaType)
+	}
 }
 
 // publishJSON marshals v and calls publisher.Publish. Errors are logged but

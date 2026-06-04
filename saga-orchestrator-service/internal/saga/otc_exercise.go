@@ -46,13 +46,19 @@ func (o *Orchestrator) HandleOtcExercise(ctx context.Context, evt events.OtcExer
 			return nil
 		}
 		if inst.State == store.SagaStateInProgress {
-			o.log.Warn("OTC_EXERCISE still IN_PROGRESS — possible duplicate; skipping",
+			// Crash recovery: process was killed while the saga was running.
+			// Re-run with the same exerciseCorrID — all downstream calls are
+			// idempotent per correlationID. advanceState's optimistic lock will
+			// reject any true concurrent duplicate with ErrOptimisticLockConflict.
+			o.log.Warn("OTC_EXERCISE crash recovery: re-running IN_PROGRESS saga",
 				"correlationId", correlationID)
-			return nil
+			inst.CompensationLog = nil // reset so re-run appends a clean step log
+			// Fall through without incrementing RetryCount.
+		} else {
+			inst.RetryCount++
+			o.log.Info("OTC_EXERCISE retrying",
+				"correlationId", correlationID, "retryCount", inst.RetryCount)
 		}
-		inst.RetryCount++
-		o.log.Info("OTC_EXERCISE retrying",
-			"correlationId", correlationID, "retryCount", inst.RetryCount)
 	}
 
 	correlationSuffix := correlationID

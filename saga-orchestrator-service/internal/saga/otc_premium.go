@@ -41,10 +41,10 @@ func (o *Orchestrator) HandleOtcPremiumTransfer(ctx context.Context, evt events.
 				"correlationId", correlationID, "state", inst.State)
 			return nil
 		}
-		// IN_PROGRESS from another consumer or prior crash: skip.
-		o.log.Warn("OTC_PREMIUM_TRANSFER in unexpected state; skipping",
+		// Crash recovery: re-run (all downstream calls are idempotent per correlationID).
+		// advanceState's optimistic lock rejects any true concurrent duplicate.
+		o.log.Warn("OTC_PREMIUM_TRANSFER crash recovery: re-running IN_PROGRESS saga",
 			"correlationId", correlationID, "state", inst.State)
-		return nil
 	}
 
 	if err := o.advanceState(ctx, inst); err != nil {
@@ -113,6 +113,9 @@ func (o *Orchestrator) otcPremiumFail(
 		"alertRequired": "true",
 	}
 	_ = o.finalize(ctx, inst, store.SagaStateFailed, compLog)
-	// Note: no publishJSON for premium failure per Java reference — just log.
+	o.publishJSON(ctx, rabbit.RKOtcPremiumFailed, events.OtcPremiumTransferFailed{
+		ContractID:    corrIDAsInt64(correlationID),
+		FailureReason: cause.Error(),
+	})
 	return cause
 }
