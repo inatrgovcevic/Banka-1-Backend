@@ -140,8 +140,12 @@ func (h *OtcHandler) handleOtcError(w http.ResponseWriter, ctx context.Context, 
 	case errors.Is(err, service.ErrSenderNotParty):
 		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, service.ErrInterbankProtocol):
+		// 2PC/communication failure to a downstream bank during /accept. Banka 2
+		// §6.3 expects 502 Bad Gateway here (downstream interbank communication
+		// error), not 500. Our client aborts on any non-2xx either way; 502 just
+		// aligns the wire status with the spec.
 		h.log.WarnContext(ctx, "otc: 2PC protocol failure", "err", err)
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusBadGateway, err.Error())
 	default:
 		h.log.ErrorContext(ctx, "otc: unexpected error", "err", err)
 		writeError(w, http.StatusInternalServerError, err.Error())

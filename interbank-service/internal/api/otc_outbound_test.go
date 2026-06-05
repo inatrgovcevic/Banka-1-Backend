@@ -125,7 +125,7 @@ func (f *fakeOutboundClientAPI) OutboundDelete(_ context.Context, _ int, _ proto
 }
 func (f *fakeOutboundClientAPI) OutboundFetchPublicStock(_ context.Context, _ int) ([]protocol.PublicStockEntry, error) {
 	return []protocol.PublicStockEntry{
-		{Stock: protocol.StockDescription{Ticker: "AAPL"}, Sellers: []protocol.PublicStockSellerRef{{SellerID: protocol.ForeignBankId{RoutingNumber: 222, Id: "C-2"}, Quantity: 50}}},
+		{Stock: protocol.StockDescription{Ticker: "AAPL"}, Sellers: []protocol.PublicStockSellerRef{{SellerID: protocol.ForeignBankId{RoutingNumber: 222, Id: "C-2"}, Quantity: decimal.NewFromInt(50)}}},
 	}, nil
 }
 

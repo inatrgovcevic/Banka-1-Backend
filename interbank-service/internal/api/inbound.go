@@ -75,6 +75,15 @@ func (h *InboundHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 		return // do NOT cache routing-mismatch failures
 	}
 
+	// Spec §2.2: locallyGeneratedKey is at most 64 bytes. Reject over-length keys
+	// with 400 and WITHOUT caching — an over-length key must never become a cached
+	// 200/204. Mirrors Banka 2 InterbankInboundController MAX_KEY_LENGTH=64.
+	if len(msg.IdempotenceKey.LocallyGeneratedKey) > 64 {
+		writeError(w, http.StatusBadRequest,
+			"idempotenceKey.locallyGeneratedKey exceeds maximum length of 64 bytes")
+		return // do NOT cache malformed-key failures
+	}
+
 	// Idempotency cache lookup.
 	cached, err := h.messages.Lookup(r.Context(), store.DirectionInbound, senderRouting, msg.IdempotenceKey.LocallyGeneratedKey)
 	if err != nil {
@@ -83,6 +92,22 @@ func (h *InboundHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cached != nil {
+		// Type-aware idempotency (Banka 2 §2.2): the (senderRouting, key) pair is
+		// unique PER MESSAGE. If the same key was already used for a DIFFERENT
+		// messageType (e.g. a COMMIT_TX arriving under a key that cached a NEW_TX
+		// vote), replaying the cached vote would skip the commit and strand money.
+		// Reject the mismatch as a protocol violation (400) instead of replaying.
+		if cached.MessageType != "" && cached.MessageType != string(msg.MessageType) {
+			h.log.WarnContext(r.Context(), "inbound: idempotency key reused for a different messageType",
+				"senderRouting", senderRouting,
+				"key", msg.IdempotenceKey.LocallyGeneratedKey,
+				"cachedType", cached.MessageType,
+				"newType", string(msg.MessageType))
+			writeError(w, http.StatusBadRequest,
+				"idempotenceKey already used for a "+cached.MessageType+
+					" message; cannot reuse it for "+string(msg.MessageType))
+			return
+		}
 		h.log.InfoContext(r.Context(), "inbound: idempotency cache hit",
 			"senderRouting", senderRouting,
 			"key", msg.IdempotenceKey.LocallyGeneratedKey,

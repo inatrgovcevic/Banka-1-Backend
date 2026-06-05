@@ -708,7 +708,7 @@ func mapProtoOtcOfferFromCreateForTest(req *interbankv1.CreateNegotiationRequest
 		Premium:        premium,
 		BuyerID:        mapProtoForeignBankIdForTest(req.GetBuyerId()),
 		SellerID:       mapProtoForeignBankIdForTest(req.GetSellerId()),
-		Amount:         int(req.GetAmount()),
+		Amount:         service.IntAmount(req.GetAmount()),
 		LastModifiedBy: mapProtoForeignBankIdForTest(req.GetLastModifiedBy()),
 	}, nil
 }
@@ -720,7 +720,7 @@ func mapProtoOtcOfferFromPutForTest(req *interbankv1.PutCounterRequest) (service
 	}
 	return service.OtcOfferDto{
 		SettlementDate: settleDate,
-		Amount:         int(req.GetAmount()),
+		Amount:         service.IntAmount(req.GetAmount()),
 		LastModifiedBy: mapProtoForeignBankIdForTest(req.GetLastModifiedBy()),
 	}, nil
 }

@@ -291,3 +291,50 @@ func TestInbound_RollbackTx_Happy(t *testing.T) {
 		t.Fatalf("expected 204, got %d body: %s", rr.Code, rr.Body.String())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Tests: protocol-compatibility guards (Banka 2 interop)
+// ---------------------------------------------------------------------------
+
+// A locallyGeneratedKey longer than 64 bytes must be rejected with 400 and NOT
+// cached (Banka 2 §2.2). Regression guard for the missing length check.
+func TestInbound_KeyTooLong_400(t *testing.T) {
+	exec := &fakeInboundExecutor{prepareVote: protocol.TransactionVote{Vote: protocol.VoteYes}}
+	msgs := newFakeInboundMessageStore()
+	r := buildTestRouter(exec, msgs)
+
+	longKey := ""
+	for i := 0; i < 65; i++ {
+		longKey += "x"
+	}
+	rr := doPost(r, "/interbank", newTxBody(longKey, testTheirRouting), testApiKey)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for >64-byte key, got %d body: %s", rr.Code, rr.Body.String())
+	}
+	// Must NOT have been cached.
+	if cached, _ := msgs.Lookup(context.Background(), store.DirectionInbound, testTheirRouting, longKey); cached != nil {
+		t.Errorf("over-length key must not be cached")
+	}
+}
+
+// Reusing one idempotency key across two DIFFERENT messageTypes (e.g. NEW_TX
+// then COMMIT_TX under the same key) must return 400, not replay the cached
+// vote — otherwise a COMMIT_TX would replay a NEW_TX vote and strand money
+// (Banka 2 §2.2 type-aware idempotency).
+func TestInbound_KeyReusedDifferentType_400(t *testing.T) {
+	exec := &fakeInboundExecutor{prepareVote: protocol.TransactionVote{Vote: protocol.VoteYes}}
+	msgs := newFakeInboundMessageStore()
+	r := buildTestRouter(exec, msgs)
+
+	const key = "shared-key-1"
+	// 1) NEW_TX caches a vote under `key`.
+	rr1 := doPost(r, "/interbank", newTxBody(key, testTheirRouting), testApiKey)
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("NEW_TX expected 200, got %d", rr1.Code)
+	}
+	// 2) COMMIT_TX reusing the SAME key — must be 400 (type mismatch), not 204.
+	rr2 := doPost(r, "/interbank", commitBody(key, testTheirRouting, "tx-abc"), testApiKey)
+	if rr2.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on key reuse across messageType, got %d body: %s", rr2.Code, rr2.Body.String())
+	}
+}

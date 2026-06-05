@@ -203,7 +203,7 @@ func (s *OtcOutboundService) CreateOutbound(
 		Premium:        protocol.MonetaryValue{Currency: req.PremiumCurrency, Amount: req.Premium},
 		BuyerID:        buyer,
 		SellerID:       seller,
-		Amount:         req.Amount,
+		Amount:         IntAmount(req.Amount),
 		LastModifiedBy: buyer, // we initiated, so we are last modifier
 	}
 
@@ -353,7 +353,7 @@ func (s *OtcOutboundService) CounterOutbound(
 		Premium:        protocol.MonetaryValue{Currency: req.PremiumCurrency, Amount: req.Premium},
 		BuyerID:        buyer,
 		SellerID:       seller,
-		Amount:         req.Amount,
+		Amount:         IntAmount(req.Amount),
 		LastModifiedBy: modifier,
 	}
 

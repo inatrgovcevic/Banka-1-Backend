@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -13,6 +15,36 @@ import (
 	"github.com/raf-si-2025/banka-1-go/interbank-service/internal/protocol"
 	"github.com/raf-si-2025/banka-1-go/interbank-service/internal/store"
 )
+
+// IntAmount is a whole-share-count OTC amount that tolerates a JSON value
+// written with trailing-zero scale (e.g. 10.00) or as a quoted string ("10").
+// Banka 2 serializes OTC amounts from BigDecimal and may emit a scaled form; a
+// plain Go int cannot decode 10.00 ("cannot unmarshal number 10.00 into Go
+// value of type int") and would 400 the offer. IntAmount decodes any integral
+// decimal (rejecting a genuinely fractional value) and always marshals back as
+// a bare integer (10), so Banka 1's own outbound offers stay int-shaped.
+type IntAmount int
+
+func (a *IntAmount) UnmarshalJSON(b []byte) error {
+	s := strings.Trim(string(b), `"`)
+	if s == "" || s == "null" {
+		*a = 0
+		return nil
+	}
+	d, err := decimal.NewFromString(s)
+	if err != nil {
+		return fmt.Errorf("amount %q is not a number: %w", s, err)
+	}
+	if !d.Equal(d.Truncate(0)) {
+		return fmt.Errorf("amount %s must be a whole number of shares", s)
+	}
+	*a = IntAmount(d.IntPart())
+	return nil
+}
+
+func (a IntAmount) MarshalJSON() ([]byte, error) {
+	return []byte(strconv.Itoa(int(a))), nil
+}
 
 // ---------------------------------------------------------------------------
 // Store interface consumed by OtcNegotiationService
@@ -40,7 +72,7 @@ type OtcOfferDto struct {
 	Premium        protocol.MonetaryValue    `json:"premium"`
 	BuyerID        protocol.ForeignBankId    `json:"buyerId"`
 	SellerID       protocol.ForeignBankId    `json:"sellerId"`
-	Amount         int                       `json:"amount"`
+	Amount         IntAmount                 `json:"amount"`
 	LastModifiedBy protocol.ForeignBankId    `json:"lastModifiedBy"`
 }
 
@@ -53,7 +85,7 @@ type OtcNegotiationDto struct {
 	Premium        protocol.MonetaryValue    `json:"premium"`
 	BuyerID        protocol.ForeignBankId    `json:"buyerId"`
 	SellerID       protocol.ForeignBankId    `json:"sellerId"`
-	Amount         int                       `json:"amount"`
+	Amount         IntAmount                 `json:"amount"`
 	LastModifiedBy protocol.ForeignBankId    `json:"lastModifiedBy"`
 	IsOngoing      bool                      `json:"isOngoing"`
 }
@@ -135,7 +167,7 @@ func (s *OtcNegotiationService) CreateNegotiation(ctx context.Context, offer Otc
 		SellerRouting:         offer.SellerID.RoutingNumber,
 		SellerID:              offer.SellerID.Id,
 		StockTicker:           offer.Stock.Ticker,
-		Amount:                offer.Amount,
+		Amount:                int(offer.Amount),
 		PriceCurrency:         offer.PricePerUnit.Currency,
 		PriceAmount:           offer.PricePerUnit.Amount,
 		PremiumCurrency:       offer.Premium.Currency,
@@ -209,7 +241,7 @@ func (s *OtcNegotiationService) UpdateCounter(ctx context.Context, rn int, id st
 		return fmt.Errorf("%w: premium.amount must be non-negative", ErrNegotiationInvalid)
 	}
 
-	neg.Amount = offer.Amount
+	neg.Amount = int(offer.Amount)
 	neg.PriceAmount = offer.PricePerUnit.Amount
 	neg.PriceCurrency = offer.PricePerUnit.Currency
 	neg.PremiumAmount = offer.Premium.Amount
@@ -297,7 +329,7 @@ func toDto(n *store.Negotiation) OtcNegotiationDto {
 		},
 		BuyerID:  protocol.ForeignBankId{RoutingNumber: n.BuyerRouting, Id: n.BuyerID},
 		SellerID: protocol.ForeignBankId{RoutingNumber: n.SellerRouting, Id: n.SellerID},
-		Amount:   n.Amount,
+		Amount:   IntAmount(n.Amount),
 		LastModifiedBy: protocol.ForeignBankId{
 			RoutingNumber: n.LastModifiedByRouting,
 			Id:            n.LastModifiedByID,

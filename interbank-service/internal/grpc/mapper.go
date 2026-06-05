@@ -175,7 +175,7 @@ func mapProtoOtcOfferFromCreate(req *interbankv1.CreateNegotiationRequest) (serv
 		Premium:        premium,
 		BuyerID:        mapProtoForeignBankId(req.GetBuyerId()),
 		SellerID:       mapProtoForeignBankId(req.GetSellerId()),
-		Amount:         int(req.GetAmount()),
+		Amount:         service.IntAmount(req.GetAmount()),
 		LastModifiedBy: mapProtoForeignBankId(req.GetLastModifiedBy()),
 	}, nil
 }
@@ -204,7 +204,7 @@ func mapProtoOtcOfferFromPut(req *interbankv1.PutCounterRequest) (service.OtcOff
 		Premium:        premium,
 		BuyerID:        mapProtoForeignBankId(req.GetBuyerId()),
 		SellerID:       mapProtoForeignBankId(req.GetSellerId()),
-		Amount:         int(req.GetAmount()),
+		Amount:         service.IntAmount(req.GetAmount()),
 		LastModifiedBy: mapProtoForeignBankId(req.GetLastModifiedBy()),
 	}, nil
 }

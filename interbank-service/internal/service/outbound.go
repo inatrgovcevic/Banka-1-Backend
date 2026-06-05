@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/raf-si-2025/banka-1-go/interbank-service/internal/protocol"
@@ -258,7 +259,7 @@ func (c *InterbankClient) OutboundCreateNegotiation(ctx context.Context, partner
 		return nil, fmt.Errorf("outbound: marshal offer: %w", err)
 	}
 
-	resp, err := c.doRequest(ctx, http.MethodPost, partner.BaseURL+"negotiations", partner.OutboundToken, bodyBytes)
+	resp, err := c.doRequest(ctx, http.MethodPost, joinURL(partner.BaseURL, "negotiations"), partner.OutboundToken, bodyBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +286,7 @@ func (c *InterbankClient) OutboundPutCounter(ctx context.Context, partnerRouting
 		return 0, fmt.Errorf("outbound: marshal offer: %w", err)
 	}
 
-	u := fmt.Sprintf("%snegotiations/%d/%s", partner.BaseURL, negID.RoutingNumber, negID.Id)
+	u := joinURL(partner.BaseURL, fmt.Sprintf("negotiations/%d/%s", negID.RoutingNumber, negID.Id))
 	status, _, doErr := c.doRequestFull(ctx, http.MethodPut, u, partner.OutboundToken, bodyBytes)
 	if doErr != nil {
 		// Unwrap typed errors to let caller decide.
@@ -302,7 +303,7 @@ func (c *InterbankClient) OutboundAccept(ctx context.Context, partnerRouting int
 		return 0, err
 	}
 
-	u := fmt.Sprintf("%snegotiations/%d/%s/accept", partner.BaseURL, negID.RoutingNumber, negID.Id)
+	u := joinURL(partner.BaseURL, fmt.Sprintf("negotiations/%d/%s/accept", negID.RoutingNumber, negID.Id))
 	status, _, doErr := c.doRequestFull(ctx, http.MethodGet, u, partner.OutboundToken, nil)
 	if doErr != nil {
 		return status, doErr
@@ -318,7 +319,7 @@ func (c *InterbankClient) OutboundDelete(ctx context.Context, partnerRouting int
 		return err
 	}
 
-	u := fmt.Sprintf("%snegotiations/%d/%s", partner.BaseURL, negID.RoutingNumber, negID.Id)
+	u := joinURL(partner.BaseURL, fmt.Sprintf("negotiations/%d/%s", negID.RoutingNumber, negID.Id))
 	status, _, doErr := c.doRequestFull(ctx, http.MethodDelete, u, partner.OutboundToken, nil)
 	if doErr != nil {
 		// 404 → idempotent no-op per Tim 2 MINOR-3.
@@ -342,7 +343,7 @@ func (c *InterbankClient) OutboundFetchPublicStock(ctx context.Context, partnerR
 		return nil, err
 	}
 
-	u := partner.BaseURL + "public-stock"
+	u := joinURL(partner.BaseURL, "public-stock")
 	status, body, doErr := c.doRequestFull(ctx, http.MethodGet, u, partner.OutboundToken, nil)
 	if doErr != nil {
 		if errors.Is(doErr, ErrOutboundAuth) {
@@ -463,7 +464,7 @@ func (c *InterbankClient) postInterbank(ctx context.Context, partner *auth.Partn
 	if err != nil {
 		return nil, 0, fmt.Errorf("outbound: marshal envelope: %w", err)
 	}
-	u := partner.BaseURL + "interbank"
+	u := joinURL(partner.BaseURL, "interbank")
 	status, body, doErr := c.doRequestFull(ctx, http.MethodPost, u, partner.OutboundToken, bodyBytes)
 	return body, status, doErr
 }
@@ -516,6 +517,19 @@ func (c *InterbankClient) doRequestFull(ctx context.Context, method, rawURL, api
 		return resp.StatusCode, respBody, fmt.Errorf("%w: status=%d body=%s", ErrOutboundUpstream, resp.StatusCode, respBody)
 	}
 	return resp.StatusCode, respBody, nil
+}
+
+// joinURL concatenates a partner base URL with a protocol path segment,
+// guaranteeing EXACTLY ONE slash between them regardless of whether BaseURL has
+// a trailing slash. This makes outbound calls correct for both
+// "https://banka-2.radenkovic.rs/api" and ".../api/" partner BaseURL forms.
+//
+// Banka 2's Envoy gateway requires the /api prefix in BaseURL (it strips /api
+// then hits backend /interbank, /negotiations, ...). The previous code did a
+// bare BaseURL+segment concatenation, so a BaseURL WITHOUT a trailing slash
+// produced ".../apiinterbank" (404). Normalizing here removes that footgun.
+func joinURL(base, path string) string {
+	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(path, "/")
 }
 
 // ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/shopspring/decimal"
 
 	"github.com/raf-si-2025/banka-1-go/interbank-service/internal/protocol"
 )
@@ -137,7 +138,7 @@ func mockPublicStock(w http.ResponseWriter, r *http.Request) {
 			Sellers: []protocol.PublicStockSellerRef{
 				{
 					SellerID: protocol.ForeignBankId{RoutingNumber: banka2Routing, Id: "C-99"},
-					Quantity: 25,
+					Quantity: decimal.NewFromInt(25),
 				},
 			},
 		},
@@ -146,7 +147,7 @@ func mockPublicStock(w http.ResponseWriter, r *http.Request) {
 			Sellers: []protocol.PublicStockSellerRef{
 				{
 					SellerID: protocol.ForeignBankId{RoutingNumber: banka2Routing, Id: "C-100"},
-					Quantity: 50,
+					Quantity: decimal.NewFromInt(50),
 				},
 			},
 		},

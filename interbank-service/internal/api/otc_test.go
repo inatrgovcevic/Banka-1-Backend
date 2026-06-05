@@ -285,7 +285,10 @@ func TestOtc_Accept_ProtocolFailure_5xx(t *testing.T) {
 	svc := &fakeOtcService{acceptErr: service.ErrInterbankProtocol}
 	r := buildOtcRouter(svc)
 	rr := doMethod(r, http.MethodGet, "/negotiations/111/neg-abc/accept", nil, testApiKey)
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 on 2PC failure, got %d", rr.Code)
+	// A 2PC/communication failure to a downstream bank maps to 502 Bad Gateway
+	// (Banka 2 §6.3). Previously this returned 500; the client aborts on any
+	// non-2xx so the change is wire-compatible, it just aligns the status.
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 on 2PC failure, got %d", rr.Code)
 	}
 }

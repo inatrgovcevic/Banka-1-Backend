@@ -509,7 +509,7 @@ func TestFetchPartnerPublicStock_Passthrough(t *testing.T) {
 		{
 			Stock: protocol.StockDescription{Ticker: "TSLA"},
 			Sellers: []protocol.PublicStockSellerRef{
-				{SellerID: protocol.ForeignBankId{RoutingNumber: 222, Id: "C-2"}, Quantity: 50},
+				{SellerID: protocol.ForeignBankId{RoutingNumber: 222, Id: "C-2"}, Quantity: decimal.NewFromInt(50)},
 			},
 		},
 	}
