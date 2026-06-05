@@ -313,10 +313,10 @@ func (s *Service) GetOrders(ctx context.Context, statusFilter string, page, size
 	return api.NewPage(slice, page, size, int64(total)), nil
 }
 
-// GetMyOrders mirrors getMyOrders: a client's own orders.
+// GetMyOrders mirrors getMyOrders: a caller's own orders.
 func (s *Service) GetMyOrders(ctx context.Context, user AuthUser) ([]api.OrderResponse, error) {
-	if !user.IsClient() {
-		return nil, api.NewOrderError(403, "Only clients can view their orders")
+	if !user.IsClient() && !user.IsAgent() {
+		return nil, api.NewOrderError(403, "Only clients and agents can view their orders")
 	}
 	orders, err := s.repo.FindByUserID(ctx, s.repo.Pool(), user.UserID)
 	if err != nil {
@@ -334,13 +334,13 @@ func (s *Service) GetMyOrders(ctx context.Context, user AuthUser) ([]api.OrderRe
 }
 
 // GetMyOrdersPaged mirrors getMyOrdersPaged: the filtered, paginated mobile My
-// Orders view. Loads the client's orders, filters by status / listing type /
+// Orders view. Loads the caller's orders, filters by status / listing type /
 // created-at date range, sorts by createdAt desc, enriches each row with the
 // listing ticker/name/type and the weighted-average execution price, then pages
 // in memory (matching the Java PageImpl slicing).
 func (s *Service) GetMyOrdersPaged(ctx context.Context, user AuthUser, statusFilter string, listingType *string, dateFrom, dateTo *time.Time, page, size int) (api.Page[api.OrderResponse], error) {
-	if !user.IsClient() {
-		return api.Page[api.OrderResponse]{}, api.NewOrderError(403, "Only clients can view their orders")
+	if !user.IsClient() && !user.IsAgent() {
+		return api.Page[api.OrderResponse]{}, api.NewOrderError(403, "Only clients and agents can view their orders")
 	}
 	orders, err := s.repo.FindByUserID(ctx, s.repo.Pool(), user.UserID)
 	if err != nil {

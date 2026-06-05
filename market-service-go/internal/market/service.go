@@ -674,7 +674,7 @@ func (s *Service) ListPriceAlerts(ctx context.Context, userID int64) ([]PriceAle
 	return s.repo.ListPriceAlertsByUser(ctx, userID)
 }
 
-func (s *Service) CreatePriceAlert(ctx context.Context, userID int64, recipientType string, listingID int64, condition PriceAlertCondition, threshold, notificationType string) (*PriceAlert, error) {
+func (s *Service) CreatePriceAlert(ctx context.Context, userID int64, recipientType, userEmail, username string, listingID int64, condition PriceAlertCondition, threshold, notificationType string) (*PriceAlert, error) {
 	if listingID <= 0 || !validAlertCondition(condition) {
 		return nil, ErrBadRequest
 	}
@@ -700,6 +700,8 @@ func (s *Service) CreatePriceAlert(ctx context.Context, userID int64, recipientT
 		Condition:        condition,
 		Threshold:        thresholdDec.StringFixed(4),
 		NotificationType: notificationType,
+		UserEmail:        optionalString(userEmail),
+		Username:         optionalString(username),
 		Active:           true,
 		CreatedAt:        time.Now().UTC(),
 	})
@@ -890,11 +892,15 @@ func priceAlertPayload(alert PriceAlert, listing Listing) PriceAlertNotification
 		id := alert.UserID
 		clientID = &id
 	}
+	username := "korisnice"
+	if alert.Username != nil && strings.TrimSpace(*alert.Username) != "" {
+		username = strings.TrimSpace(*alert.Username)
+	}
 	return PriceAlertNotificationPayload{
-		Username:  "korisnice",
-		UserEmail: nil,
+		Username:  username,
+		UserEmail: alert.UserEmail,
 		TemplateVariables: map[string]string{
-			"name":           "korisnice",
+			"name":           username,
 			"ticker":         listing.Ticker,
 			"price":          listing.Price,
 			"triggeredPrice": listing.Price,
@@ -903,4 +909,12 @@ func priceAlertPayload(alert PriceAlert, listing Listing) PriceAlertNotification
 		},
 		ClientID: clientID,
 	}
+}
+
+func optionalString(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }

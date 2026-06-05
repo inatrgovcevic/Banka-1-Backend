@@ -428,7 +428,7 @@ func (h *Handlers) CreatePriceAlert(w http.ResponseWriter, r *http.Request) {
 		platform.StockError(w, r, http.StatusBadRequest, "Invalid request")
 		return
 	}
-	alert, err := h.app.MarketService.CreatePriceAlert(r.Context(), principal.ID, recipientType(principal.Role), req.ListingID, req.Condition, threshold, req.NotificationType)
+	alert, err := h.app.MarketService.CreatePriceAlert(r.Context(), principal.ID, recipientType(principal.Role), principal.Email, principal.Subject, req.ListingID, req.Condition, threshold, req.NotificationType)
 	respondMarketResult(w, r, priceAlertDTOPtr(alert), err, http.StatusCreated)
 }
 

@@ -44,15 +44,15 @@ func registerRoutes(handle func(method, path string, handler http.Handler), app 
 	// Order (order-service module). @PreAuthorize per OrderController:
 	//  - buy/sell/confirm/cancel(POST): CLIENT_TRADING/AGENT/SUPERVISOR
 	//  - GET /orders, PUT cancel/approve/decline: SUPERVISOR
-	//  - GET /orders/my-orders: CLIENT_BASIC/CLIENT_TRADING/CLIENT
+	//  - GET /orders/my-orders: CLIENT_BASIC/CLIENT_TRADING/CLIENT/AGENT/SUPERVISOR
 	trader := []string{"CLIENT_TRADING", "AGENT", "SUPERVISOR"}
-	clientRoles := []string{"CLIENT_BASIC", "CLIENT_TRADING", "CLIENT"}
+	myOrderRoles := []string{"CLIENT_BASIC", "CLIENT_TRADING", "CLIENT", "AGENT", "SUPERVISOR"}
 	authenticated := []string{"CLIENT_BASIC", "CLIENT_TRADING", "CLIENT", "AGENT", "SUPERVISOR", "ADMIN", "SERVICE"}
 	handle(http.MethodPost, "/orders/buy", orderSecured(jwtService, trader, handlers.OrderBuy))
 	handle(http.MethodPost, "/orders/sell", orderSecured(jwtService, trader, handlers.OrderSell))
 	handle(http.MethodGet, "/orders", orderSecured(jwtService, supervisor, handlers.OrderList))
-	handle(http.MethodGet, "/orders/my-orders", orderSecured(jwtService, clientRoles, handlers.OrderMyOrders))
-	handle(http.MethodGet, "/orders/my-orders/paged", orderSecured(jwtService, clientRoles, handlers.OrderMyOrdersPaged))
+	handle(http.MethodGet, "/orders/my-orders", orderSecured(jwtService, myOrderRoles, handlers.OrderMyOrders))
+	handle(http.MethodGet, "/orders/my-orders/paged", orderSecured(jwtService, myOrderRoles, handlers.OrderMyOrdersPaged))
 	handle(http.MethodPost, "/orders/{id}/confirm", orderSecured(jwtService, trader, handlers.OrderConfirm))
 	handle(http.MethodPost, "/orders/{id}/cancel", orderSecured(jwtService, trader, handlers.OrderCancel))
 	handle(http.MethodPut, "/orders/{id}/cancel", orderSecured(jwtService, supervisor, handlers.OrderCancelSupervisor))
@@ -67,6 +67,7 @@ func registerRoutes(handle func(method, path string, handler http.Handler), app 
 	handle(http.MethodPatch, "/recurring-orders/{id}/pause", orderSecured(jwtService, trader, handlers.RecurringOrderPause))
 	handle(http.MethodPatch, "/recurring-orders/{id}/resume", orderSecured(jwtService, trader, handlers.RecurringOrderResume))
 	handle(http.MethodDelete, "/recurring-orders/{id}", orderSecured(jwtService, trader, handlers.RecurringOrderDelete))
+	handle(http.MethodPost, "/internal/recurring-orders/run-due", orderSecured(jwtService, []string{"SERVICE"}, handlers.RecurringOrdersRunDueInternal))
 
 	// Tax (order-service module). Per TaxController @PreAuthorize:
 	//  - POST /tax/collect, /tax/collect/current-month: SUPERVISOR
