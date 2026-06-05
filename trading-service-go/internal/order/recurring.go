@@ -408,14 +408,25 @@ func (s *Service) advanceRecurringNextRun(ctx context.Context, id int64) {
 // FCM push audience); actuary owners get null (no device push).
 func (s *Service) publishRecurringSkipped(ctx context.Context, ro *RecurringOrder, reason string) {
 	var clientID *int64
+	var username *string
+	var userEmail *string
 	if info, err := s.actuaries.FindByEmployeeID(ctx, ro.UserID); err == nil && info == nil {
 		uid := ro.UserID
 		clientID = &uid
+		if customer, err := s.customers.GetCustomer(ctx, ro.UserID); err == nil && customer != nil {
+			userEmail = customer.Email
+			username = customer.First()
+		}
+	} else if emp, err := s.employees.GetEmployee(ctx, ro.UserID); err == nil && emp != nil {
+		userEmail = emp.Email
+		username = emp.Ime
 	}
 	if reason == "" {
 		reason = "Nedovoljno sredstava"
 	}
 	s.notifier.RecurringOrderSkipped(ctx, api.RecurringOrderSkippedNotification{
+		Username: username,
+		UserEmail: userEmail,
 		ClientID: clientID,
 		TemplateVariables: map[string]string{
 			"orderId":   strconv.FormatInt(ro.ID, 10),

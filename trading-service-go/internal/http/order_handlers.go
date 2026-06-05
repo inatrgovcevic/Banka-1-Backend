@@ -222,7 +222,7 @@ func (h *Handlers) RecurringOrderCreate(w http.ResponseWriter, r *http.Request) 
 		writeDomainError(w, r, api.NewOrderError(http.StatusBadRequest, "Malformed JSON request body"))
 		return
 	}
-	mode, ok := normalizeEnum(req.Mode, order.RecurringModeByQuantity, order.RecurringModeByAmount)
+	mode, ok := normalizeRecurringMode(req.Mode)
 	if !ok {
 		writeDomainError(w, r, api.NewOrderError(http.StatusBadRequest, "Malformed JSON request body"))
 		return
@@ -236,8 +236,11 @@ func (h *Handlers) RecurringOrderCreate(w http.ResponseWriter, r *http.Request) 
 	if req.NextRun != nil {
 		parsed, err := time.ParseInLocation("2006-01-02T15:04:05.999999999", strings.TrimSpace(*req.NextRun), time.UTC)
 		if err != nil {
-			writeDomainError(w, r, api.NewOrderError(http.StatusBadRequest, "Malformed JSON request body"))
-			return
+			parsed, err = time.ParseInLocation("2006-01-02T15:04:05", strings.TrimSpace(*req.NextRun), time.UTC)
+			if err != nil {
+				writeDomainError(w, r, api.NewOrderError(http.StatusBadRequest, "Malformed JSON request body"))
+				return
+			}
 		}
 		nextRun = &parsed
 	}
@@ -261,9 +264,14 @@ func (h *Handlers) RecurringOrderCreate(w http.ResponseWriter, r *http.Request) 
 	if cadence == "" {
 		fields["cadence"] = msgNotNull
 	}
-	if nextRun == nil {
-		fields["nextRun"] = msgNotNull
-	} else if !nextRun.After(time.Now().UTC()) {
+	if req.DayOfMonth != nil && (*req.DayOfMonth < 1 || *req.DayOfMonth > 31) {
+		fields["dayOfMonth"] = "must be between 1 and 31"
+	}
+	if nextRun == nil && cadence != "" {
+		computed := defaultRecurringNextRun(time.Now().UTC(), cadence, req.DayOfMonth)
+		nextRun = &computed
+	}
+	if nextRun != nil && !nextRun.After(time.Now().UTC()) {
 		fields["nextRun"] = "must be a future date"
 	}
 	if len(fields) > 0 {
@@ -279,6 +287,16 @@ func (h *Handlers) RecurringOrderCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, resp)
+}
+
+// RecurringOrdersRunDueInternal lets service-to-service tests/admin jobs trigger
+// the same due-order scheduler path without waiting for the 15-minute cron.
+func (h *Handlers) RecurringOrdersRunDueInternal(w http.ResponseWriter, r *http.Request) {
+	if err := h.app.Order.RunDueRecurringOrders(r.Context()); err != nil {
+		writeDomainError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, api.SimpleSuccess("Recurring orders run completed"))
 }
 
 // RecurringOrderPause ↔ PATCH /recurring-orders/{id}/pause.
@@ -340,6 +358,51 @@ func normalizeEnum(raw *string, allowed ...string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func normalizeRecurringMode(raw *string) (string, bool) {
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return "", true
+	}
+	upper := strings.ToUpper(strings.TrimSpace(*raw))
+	switch strings.ReplaceAll(upper, "_", "") {
+	case "BYQUANTITY":
+		return order.RecurringModeByQuantity, true
+	case "BYAMOUNT":
+		return order.RecurringModeByAmount, true
+	default:
+		return "", false
+	}
+}
+
+func defaultRecurringNextRun(now time.Time, cadence string, dayOfMonth *int) time.Time {
+	base := now.Truncate(time.Second)
+	switch cadence {
+	case order.CadenceDaily:
+		return base.AddDate(0, 0, 1)
+	case order.CadenceWeekly:
+		return base.AddDate(0, 0, 7)
+	case order.CadenceMonthly:
+		if dayOfMonth == nil {
+			return base.AddDate(0, 1, 0)
+		}
+		target := time.Date(base.Year(), base.Month(), clampDay(base.Year(), base.Month(), *dayOfMonth), base.Hour(), base.Minute(), base.Second(), 0, time.UTC)
+		if !target.After(base) {
+			nextMonth := base.AddDate(0, 1, 0)
+			target = time.Date(nextMonth.Year(), nextMonth.Month(), clampDay(nextMonth.Year(), nextMonth.Month(), *dayOfMonth), base.Hour(), base.Minute(), base.Second(), 0, time.UTC)
+		}
+		return target
+	default:
+		return base.AddDate(0, 0, 1)
+	}
+}
+
+func clampDay(year int, month time.Month, requested int) int {
+	lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	if requested > lastDay {
+		return lastDay
+	}
+	return requested
 }
 
 // OrderConfirm ↔ POST /orders/{id}/confirm.

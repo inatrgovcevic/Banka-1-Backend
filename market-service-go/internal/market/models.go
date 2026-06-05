@@ -140,6 +140,8 @@ type PriceAlert struct {
 	Condition        PriceAlertCondition
 	Threshold        string
 	NotificationType string
+	UserEmail        *string
+	Username         *string
 	Active           bool
 	CreatedAt        time.Time
 	LastTriggeredAt  *time.Time
