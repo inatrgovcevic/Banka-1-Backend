@@ -9,9 +9,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const migrationTable = "notification_service_go_schema_migrations"
+
 func RunMigrations(ctx context.Context, db *pgxpool.Pool, migrationsDir string) error {
 	_, err := db.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS go_schema_migrations (
+		CREATE TABLE IF NOT EXISTS `+migrationTable+` (
 			version VARCHAR(255) PRIMARY KEY,
 			applied_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)
@@ -32,7 +34,7 @@ func RunMigrations(ctx context.Context, db *pgxpool.Pool, migrationsDir string) 
 
 		var exists bool
 		err = db.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM go_schema_migrations WHERE version = $1)`,
+			`SELECT EXISTS(SELECT 1 FROM `+migrationTable+` WHERE version = $1)`,
 			version,
 		).Scan(&exists)
 		if err != nil {
@@ -60,7 +62,7 @@ func RunMigrations(ctx context.Context, db *pgxpool.Pool, migrationsDir string) 
 		}
 
 		_, err = tx.Exec(ctx,
-			`INSERT INTO go_schema_migrations (version) VALUES ($1)`,
+			`INSERT INTO `+migrationTable+` (version) VALUES ($1)`,
 			version,
 		)
 		if err != nil {

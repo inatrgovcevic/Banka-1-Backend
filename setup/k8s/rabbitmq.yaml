@@ -66,25 +66,7 @@ spec:
           volumeMounts:
             - name: rabbitmq-data
               mountPath: /var/lib/rabbitmq
-          readinessProbe:
-            exec:
-              command:
-                - rabbitmq-diagnostics
-                - check_port_connectivity
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          livenessProbe:
-            exec:
-              command:
-                - rabbitmq-diagnostics
-                - check_port_connectivity
-            initialDelaySeconds: 20
-            periodSeconds: 20
-          resources:
-            requests:
-              memory: 192Mi
-            limits:
-              memory: 384Mi
+
       volumes:
         - name: rabbitmq-data
           persistentVolumeClaim:
