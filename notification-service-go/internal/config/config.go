@@ -56,12 +56,13 @@ type DBConfig struct {
 }
 
 type SMTPConfig struct {
-	Host         string
-	Port         int
-	Username     string
-	Password     string
-	StartTLS     bool
-	AuthRequired bool
+	Host               string
+	Port               int
+	Username           string
+	Password           string
+	StartTLS           bool
+	AuthRequired       bool
+	InsecureSkipVerify bool
 }
 
 type RetryConfig struct {
@@ -151,12 +152,13 @@ func Load() (*Config, error) {
 			Password: getenv("POSTGRES_PASSWORD", "postgres"),
 		},
 		SMTP: SMTPConfig{
-			Host:         getenv("MAIL_HOST", "smtp.gmail.com"),
-			Port:         smtpPort,
-			Username:     getenv("MAIL_USERNAME", ""),
-			Password:     getenv("MAIL_PASSWORD", ""),
-			StartTLS:     getenvBool("MAIL_SMTP_STARTTLS", true),
-			AuthRequired: getenvBool("MAIL_SMTP_AUTH", true),
+			Host:               getenv("MAIL_HOST", "smtp.gmail.com"),
+			Port:               smtpPort,
+			Username:           getenv("MAIL_USERNAME", ""),
+			Password:           getenv("MAIL_PASSWORD", ""),
+			StartTLS:           getenvBool("MAIL_SMTP_STARTTLS", true),
+			AuthRequired:       getenvBool("MAIL_SMTP_AUTH", true),
+			InsecureSkipVerify: getenvBool("MAIL_SMTP_INSECURE_SKIP_VERIFY", false),
 		},
 		Retry: RetryConfig{
 			MaxRetries:          maxRetries,

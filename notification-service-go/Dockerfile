@@ -13,6 +13,10 @@ FROM alpine:3.20
 
 WORKDIR /app
 
+RUN apk add --no-cache ca-certificates
+
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
 COPY --from=builder /app/notification-service .
 COPY --from=builder /app/migrations ./migrations
 

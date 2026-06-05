@@ -1,0 +1,3 @@
+ALTER TABLE price_alerts
+    ADD COLUMN IF NOT EXISTS user_email VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS username VARCHAR(255);

@@ -119,18 +119,20 @@ func NewNotificationServiceWithSender(
 
 // HandleIncoming processes a successfully routed AMQP message.
 //
-// Flow for push-only notification types (PRICE_ALERT_TRIGGERED,
+// Flow for push-capable notification types (PRICE_ALERT_TRIGGERED,
 // ORDER_RECURRING_SKIPPED, and the order lifecycle events ORDER_CREATED /
 // ORDER_DONE / ORDER_PARTIAL_FILL / ORDER_AUTO_CANCELLED):
 //  1. Render subject + body templates (no email required).
-//  2. Send an FCM push notification.
+//  2. Send an FCM push notification when possible.
+//  3. If userEmail is present, also persist and send the email delivery.
 //
 // Flow for all other notification types:
 //  1. Render subject + body from template registry.
 //  2. Persist a PENDING delivery record.
 //  3. Launch AttemptDelivery asynchronously.
 //
-// Push-only types skip the email delivery channel entirely.
+// Push-capable types without userEmail skip the email delivery channel instead
+// of poisoning the queue.
 //
 // A non-nil error causes the Consumer to NACK the message.
 func (s *NotificationService) HandleIncoming(
@@ -139,7 +141,12 @@ func (s *NotificationService) HandleIncoming(
 	notificationType model.NotificationType,
 ) error {
 	if model.IsPushOnlyNotificationType(notificationType) {
-		return s.handlePushOnlyNotification(ctx, req, notificationType)
+		if err := s.handlePushOnlyNotification(ctx, req, notificationType); err != nil {
+			return err
+		}
+		if req.UserEmail == "" {
+			return nil
+		}
 	}
 
 	resolved, err := s.renderer.Resolve(

@@ -2,6 +2,7 @@ package smtp
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -20,6 +21,7 @@ type Sender struct {
 	password  string
 	from      string
 	startTLS  bool
+	insecure  bool
 	tlsConfig *tls.Config
 }
 
@@ -31,6 +33,7 @@ func NewSender(cfg config.SMTPConfig) *Sender {
 		password: cfg.Password,
 		from:     cfg.Username,
 		startTLS: cfg.StartTLS,
+		insecure: cfg.InsecureSkipVerify,
 	}
 }
 
@@ -54,11 +57,67 @@ func (s *Sender) SendEmail(to, subject, body string) error {
 		auth = smtp.PlainAuth("", s.username, s.password, s.host)
 	}
 
-	err := smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
+	err := s.send(addr, auth, from, []string{to}, []byte(msg))
 	if err == nil {
 		return nil
 	}
 	return classifyError(err)
+}
+
+func (s *Sender) send(addr string, auth smtp.Auth, from string, recipients []string, msg []byte) error {
+	c, err := smtp.Dial(addr)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	if s.startTLS {
+		if ok, _ := c.Extension("STARTTLS"); ok {
+			tlsCfg := s.tlsConfig
+			if tlsCfg == nil {
+				tlsCfg = &tls.Config{ServerName: s.host, RootCAs: systemCertPool(), InsecureSkipVerify: s.insecure} //nolint:gosec
+			}
+			if err := c.StartTLS(tlsCfg); err != nil {
+				return err
+			}
+		}
+	}
+
+	if auth != nil {
+		if ok, _ := c.Extension("AUTH"); ok {
+			if err := c.Auth(auth); err != nil {
+				return err
+			}
+		}
+	}
+	if err := c.Mail(from); err != nil {
+		return err
+	}
+	for _, recipient := range recipients {
+		if err := c.Rcpt(recipient); err != nil {
+			return err
+		}
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(msg); err != nil {
+		_ = w.Close()
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return c.Quit()
+}
+
+func systemCertPool() *x509.CertPool {
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		return nil
+	}
+	return pool
 }
 
 // MailAuthError indicates that the SMTP server rejected our credentials.
@@ -67,8 +126,8 @@ type MailAuthError struct {
 	Cause error
 }
 
-func (e *MailAuthError) Error() string  { return "SMTP authentication failed: " + e.Cause.Error() }
-func (e *MailAuthError) Unwrap() error  { return e.Cause }
+func (e *MailAuthError) Error() string { return "SMTP authentication failed: " + e.Cause.Error() }
+func (e *MailAuthError) Unwrap() error { return e.Cause }
 
 // PermanentSMTPError wraps a server-side 5xx error that is not an auth failure.
 type PermanentSMTPError struct {

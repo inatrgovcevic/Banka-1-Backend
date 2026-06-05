@@ -183,6 +183,56 @@ func TestHandleIncoming_SubjectRenderedCorrectly(t *testing.T) {
 	assert.Equal(t, "Activation Email", sender.lastSubj)
 }
 
+func TestHandleIncoming_PushCapableOrderWithEmail_AlsoCreatesEmailDelivery(t *testing.T) {
+	t.Parallel()
+	store := &stubStore{}
+	svc, sender, _ := newService(store, nil, nil)
+
+	req := &dto.NotificationRequest{
+		UserEmail: "client@bank.io",
+		Username:  "Dimitrije",
+		TemplateVariables: map[string]string{
+			"name":              "Dimitrije",
+			"orderId":           "42",
+			"ticker":            "AAPL",
+			"quantity":          "10",
+			"price":             "123.45",
+			"remainingPortions": "6",
+		},
+	}
+
+	err := svc.HandleIncoming(context.Background(), req, model.NotificationTypeOrderPartialFill)
+	require.NoError(t, err)
+
+	require.Len(t, store.created, 1)
+	assert.Equal(t, "client@bank.io", store.created[0].RecipientEmail)
+	assert.Equal(t, string(model.NotificationTypeOrderPartialFill), store.created[0].NotificationType)
+	assert.Equal(t, 1, sender.calls)
+	assert.Equal(t, "Delimicno izvrsenje naloga", sender.lastSubj)
+}
+
+func TestHandleIncoming_PushCapableOrderWithoutEmail_SkipsEmailDelivery(t *testing.T) {
+	t.Parallel()
+	store := &stubStore{}
+	svc, sender, _ := newService(store, nil, nil)
+
+	req := &dto.NotificationRequest{
+		Username: "Dimitrije",
+		TemplateVariables: map[string]string{
+			"name":     "Dimitrije",
+			"orderId":  "42",
+			"ticker":   "AAPL",
+			"quantity": "10",
+			"price":    "123.45",
+		},
+	}
+
+	err := svc.HandleIncoming(context.Background(), req, model.NotificationTypeOrderDone)
+	require.NoError(t, err)
+	assert.Empty(t, store.created)
+	assert.Equal(t, 0, sender.calls)
+}
+
 // ---------------------------------------------------------------------------
 // HandleIncoming — template resolution failure
 // ---------------------------------------------------------------------------
