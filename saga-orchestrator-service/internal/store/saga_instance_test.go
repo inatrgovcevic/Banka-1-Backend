@@ -2,17 +2,25 @@ package store_test
 
 import (
 	"context"
+	"database/sql"
 	"os"
+	"path/filepath"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 
 	sharedpgx "github.com/raf-si-2025/banka-1-go/shared/pgxpool"
 
 	"github.com/raf-si-2025/banka-1-go/saga-orchestrator-service/internal/store"
 )
+
+var migrateOnce sync.Once
 
 // getPool opens a real pool when SAGA_DB_URL is set, otherwise returns nil.
 // Tests that require a real pool skip themselves when the pool is nil.
@@ -26,8 +34,35 @@ func getPool(t *testing.T) *pgxpool.Pool {
 	if err != nil {
 		t.Fatalf("open pool: %v", err)
 	}
+	ensureSchema(t, dsn)
 	t.Cleanup(pool.Close)
 	return pool
+}
+
+func ensureSchema(t *testing.T, dsn string) {
+	t.Helper()
+
+	migrateOnce.Do(func() {
+		sqlDB, err := sql.Open("pgx", dsn)
+		if err != nil {
+			t.Fatalf("sql.Open: %v", err)
+		}
+		defer sqlDB.Close()
+
+		if err := goose.SetDialect("postgres"); err != nil {
+			t.Fatalf("goose.SetDialect: %v", err)
+		}
+
+		_, thisFile, _, ok := runtime.Caller(0)
+		if !ok {
+			t.Fatal("runtime.Caller failed")
+		}
+		migrationsDir := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", "migrations"))
+
+		if err := goose.Up(sqlDB, migrationsDir); err != nil {
+			t.Fatalf("goose.Up: %v", err)
+		}
+	})
 }
 
 func TestSagaInstanceStore_InsertAndFind(t *testing.T) {
