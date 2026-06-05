@@ -69,7 +69,7 @@ spec:
                   name: db-pguser-db
                   key: password
             - name: SAGA_DB_URL
-              value: postgres://$(SAGA_DB_USER):$(SAGA_DB_PASSWORD)@$(SAGA_DB_HOST):$(SAGA_DB_PORT)/$(SAGA_DB_NAME)?sslmode=allow
+              value: postgres://$(SAGA_DB_USER):$(SAGA_DB_PASSWORD)@$(SAGA_DB_HOST):$(SAGA_DB_PORT)/$(SAGA_DB_NAME)?sslmode=require
             - name: SAGA_DB_MAX_CONNS
               value: "10"
             - name: SAGA_DB_MIN_CONNS

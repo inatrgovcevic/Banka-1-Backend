@@ -65,6 +65,8 @@ spec:
                 secretKeyRef:
                   name: db-pguser-db
                   key: password
+            - name: POSTGRES_SSLMODE
+              value: require
             - name: RABBITMQ_HOST
               value: rabbitmq
             - name: RABBITMQ_PORT

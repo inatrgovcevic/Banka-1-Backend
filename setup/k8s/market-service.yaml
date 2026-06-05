@@ -68,6 +68,8 @@ spec:
                 secretKeyRef:
                   name: db-pguser-db
                   key: password
+            - name: MARKET_SERVICE_DB_SSLMODE
+              value: require
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:

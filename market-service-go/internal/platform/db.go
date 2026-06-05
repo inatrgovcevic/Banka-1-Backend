@@ -48,7 +48,7 @@ func OpenPostgres(ctx context.Context, databaseURL string) (*pgxpool.Pool, error
 }
 
 func databaseURLFor(cfg Config, name string) string {
-	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, name)
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s", cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, name, cfg.DBSSLMode)
 }
 
 func quoteIdentifier(identifier string) string {

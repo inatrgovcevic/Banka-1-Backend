@@ -18,17 +18,16 @@ import (
 func main() {
 	db, err := config.NewDatabasePool()
 	if err != nil {
-		log.Println("database connection failed:", err)
-	} else {
-		defer db.Close()
-		log.Println("database connected")
+		log.Fatal("database connection failed:", err)
+	}
+	defer db.Close()
+	log.Println("database connected")
 
-		err = store.RunMigrations(context.Background(), db, "migrations")
-		if err != nil {
-			log.Println("database migrations failed:", err)
-		} else {
-			log.Println("database migrations applied")
-		}
+	err = store.RunMigrations(context.Background(), db, "migrations")
+	if err != nil {
+		log.Fatal("database migrations failed:", err)
+	} else {
+		log.Println("database migrations applied")
 	}
 
 	loanRequestStore := store.NewLoanRequestStore(db)

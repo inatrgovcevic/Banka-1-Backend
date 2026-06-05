@@ -14,14 +14,22 @@ func NewDatabasePool() (*pgxpool.Pool, error) {
 	name := os.Getenv("CREDIT_DB_NAME")
 	user := os.Getenv("CREDIT_DB_USER")
 	password := os.Getenv("CREDIT_DB_PASSWORD")
+	sslMode := os.Getenv("CREDIT_DB_SSLMODE")
+	if sslMode == "" {
+		sslMode = os.Getenv("POSTGRES_SSLMODE")
+	}
+	if sslMode == "" {
+		sslMode = "disable"
+	}
 
 	databaseURL := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
 		user,
 		password,
 		host,
 		port,
 		name,
+		sslMode,
 	)
 
 	pool, err := pgxpool.New(context.Background(), databaseURL)

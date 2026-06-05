@@ -11,6 +11,7 @@ spec:
       port: 8081
       targetPort: http
 ---
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -62,7 +63,7 @@ spec:
                   name: db-pguser-db
                   key: password
             - name: POSTGRES_SSLMODE
-              value: disable
+              value: require
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:

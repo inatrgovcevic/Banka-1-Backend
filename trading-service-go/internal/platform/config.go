@@ -17,6 +17,7 @@ type Config struct {
 	DBName     string
 	DBUser     string
 	DBPassword string
+	DBSSLMode  string
 	JWT        JWTConfig
 	CORS       CORSConfig
 	Services   ServicesConfig
@@ -133,6 +134,7 @@ func LoadConfig() Config {
 		DBName:     getEnv("TRADING_DB_NAME", "trading"),
 		DBUser:     getEnv("TRADING_DB_USER", "postgres"),
 		DBPassword: getEnv("TRADING_DB_PASSWORD", "postgres"),
+		DBSSLMode:  getEnv("TRADING_DB_SSLMODE", getEnv("POSTGRES_SSLMODE", "disable")),
 		JWT: JWTConfig{
 			Secret:           getEnv("JWT_SECRET", "development_trading_service_secret_123456"),
 			Issuer:           getEnv("BANKA_SECURITY_ISSUER", "banka1"),
@@ -169,7 +171,7 @@ func LoadConfig() Config {
 
 // DatabaseURL builds the pgx connection string (same shape as market-service-go).
 func (c Config) DatabaseURL() string {
-	return "postgres://" + c.DBUser + ":" + c.DBPassword + "@" + c.DBHost + ":" + c.DBPort + "/" + c.DBName
+	return "postgres://" + c.DBUser + ":" + c.DBPassword + "@" + c.DBHost + ":" + c.DBPort + "/" + c.DBName + "?sslmode=" + c.DBSSLMode
 }
 
 func getEnv(key, fallback string) string {
