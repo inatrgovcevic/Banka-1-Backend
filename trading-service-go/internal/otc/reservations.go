@@ -13,9 +13,9 @@ import (
 	"banka1/trading-service-go/internal/clients"
 	"banka1/trading-service-go/internal/portfolio"
 
-	gpdb "banka1/go-platform/db"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 )
 
 // ReservationService backs the PUBLIC /stocks/internal endpoints called directly
@@ -28,15 +28,28 @@ import (
 // a Go-port hardening; Java holds no portfolio row lock here.
 type ReservationService struct {
 	pool      *pgxpool.Pool
-	portfolio *portfolio.Repository
-	market    *clients.MarketClient
+	portfolio reservationPortfolioRepo
+	market    marketLister
 	logger    *slog.Logger
+	runInTx   qRunner
+}
+
+// reservationPortfolioRepo abstracts the subset of *portfolio.Repository the
+// reservation flow uses. *portfolio.Repository satisfies it.
+type reservationPortfolioRepo interface {
+	FindByUserID(ctx context.Context, q portfolio.Querier, userID int64) ([]portfolio.Portfolio, error)
+	FindByUserIDAndListingIDForUpdate(ctx context.Context, q portfolio.Querier, userID, listingID int64) (*portfolio.Portfolio, error)
+	UpdateReservedQuantity(ctx context.Context, q portfolio.Querier, id int64, reserved int) error
+	UpdateQuantityAndReserved(ctx context.Context, q portfolio.Querier, id int64, quantity, reserved int) error
+	UpdateQuantity(ctx context.Context, q portfolio.Querier, id int64, quantity int) error
+	Insert(ctx context.Context, q portfolio.Querier, userID, listingID int64, listingType string, quantity int, avg decimal.Decimal) error
 }
 
 // NewReservationService wires the reservation service over the pool + shared
 // portfolio repo + market client (ticker resolution).
 func NewReservationService(pool *pgxpool.Pool, portfolioRepo *portfolio.Repository, market *clients.MarketClient, logger *slog.Logger) *ReservationService {
-	return &ReservationService{pool: pool, portfolio: portfolioRepo, market: market, logger: logger}
+	return &ReservationService{pool: pool, portfolio: portfolioRepo, market: market, logger: logger,
+		runInTx: poolQRunner(pool)}
 }
 
 // Reserve mirrors StockReservationService.reserve. Reserves `amount` of the
@@ -46,7 +59,7 @@ func NewReservationService(pool *pgxpool.Pool, portfolioRepo *portfolio.Reposito
 // reservation is consumed instead of double-reserving.
 func (s *ReservationService) Reserve(ctx context.Context, sellerID int64, stockTicker string, amount int, correlationID string) (*ReservationResponse, error) {
 	var resp *ReservationResponse
-	err := gpdb.RunInTx(ctx, s.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, func(tx reservationQuerier) error {
 		listingID, found, err := s.resolveListingByTicker(ctx, tx, sellerID, stockTicker)
 		if err != nil {
 			return err
@@ -100,7 +113,7 @@ func (s *ReservationService) Reserve(ctx context.Context, sellerID int64, stockT
 // current status, neither touching the portfolio.
 func (s *ReservationService) Release(ctx context.Context, reservationID, correlationID string) (*ReservationResponse, error) {
 	var resp *ReservationResponse
-	err := gpdb.RunInTx(ctx, s.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, func(tx reservationQuerier) error {
 		var (
 			sellerID  int64
 			listingID int64
@@ -153,7 +166,7 @@ func (s *ReservationService) Release(ctx context.Context, reservationID, correla
 // stock_ownership_transfers row.
 func (s *ReservationService) TransferOwnership(ctx context.Context, reservationID string, buyerID int64, correlationID string) (*OwnershipTransferResponse, error) {
 	var resp *OwnershipTransferResponse
-	err := gpdb.RunInTx(ctx, s.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, func(tx reservationQuerier) error {
 		var (
 			sellerID  int64
 			listingID int64
@@ -230,7 +243,7 @@ func (s *ReservationService) TransferOwnership(ctx context.Context, reservationI
 // no-op. Restores the seller (quantity + reserved) and removes the lot from the
 // buyer (quantity).
 func (s *ReservationService) ReverseOwnership(ctx context.Context, ownershipTransferID, correlationID string) error {
-	return gpdb.RunInTx(ctx, s.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return s.runInTx(ctx, func(tx reservationQuerier) error {
 		var (
 			sellerID  int64
 			buyerID   int64

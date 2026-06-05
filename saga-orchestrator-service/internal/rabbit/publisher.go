@@ -7,15 +7,22 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+// PublishChannel is the subset of amqp.Channel used by Publisher.
+// Using an interface allows unit tests to inject a fake without a broker.
+// *amqp.Channel satisfies this interface.
+type PublishChannel interface {
+	Publish(exchange, key string, mandatory, immediate bool, msg amqp.Publishing) error
+}
+
 // Publisher publishes saga result events to ExchangeSaga.
 // It holds a single amqp.Channel; for production use each goroutine should have
 // its own Publisher (channels are not thread-safe in amqp091-go).
 type Publisher struct {
-	ch *amqp.Channel
+	ch PublishChannel
 }
 
 // NewPublisher wraps an already-open amqp channel.
-func NewPublisher(ch *amqp.Channel) *Publisher {
+func NewPublisher(ch PublishChannel) *Publisher {
 	return &Publisher{ch: ch}
 }
 

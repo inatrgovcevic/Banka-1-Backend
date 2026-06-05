@@ -48,7 +48,7 @@ type Message struct {
 
 // MessageStore persists interbank_messages rows.
 type MessageStore struct {
-	pool *pgxpool.Pool
+	pool querier
 }
 
 func NewMessageStore(pool *pgxpool.Pool) *MessageStore { return &MessageStore{pool: pool} }

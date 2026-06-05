@@ -20,6 +20,7 @@ const (
 	routingOtcAccepted  = "otc.accepted"
 	routingOtcCanceled  = "otc.canceled"
 	routingOtcExpiry    = "otc.expiry_reminder"
+	routingOtcExpired   = "otc.expired"
 )
 
 // OtcNotifier publishes the OTC user-facing notifications. The service calls it
@@ -31,6 +32,7 @@ type OtcNotifier interface {
 	Accepted(ctx context.Context, offer *OtcOffer, actorID int64)
 	Canceled(ctx context.Context, offer *OtcOffer, actorID int64, eventType string)
 	ExpiryReminder(ctx context.Context, contract *OptionContract, reminderDays int)
+	ContractExpired(ctx context.Context, contract *OptionContract)
 }
 
 // notificationRequest mirrors TradingNotificationProducer.TradingNotificationRequest
@@ -75,6 +77,11 @@ func (n *RabbitNotifier) ExpiryReminder(ctx context.Context, contract *OptionCon
 	sellerVars := n.contractVars("EXPIRY_REMINDER", contract, contract.BuyerID)
 	sellerVars["reminderDays"] = strconv.Itoa(reminderDays)
 	n.notify(ctx, contract.SellerID, routingOtcExpiry, sellerVars)
+}
+
+func (n *RabbitNotifier) ContractExpired(ctx context.Context, contract *OptionContract) {
+	n.notify(ctx, contract.BuyerID, routingOtcExpired, n.contractVars("EXPIRED", contract, contract.SellerID))
+	n.notify(ctx, contract.SellerID, routingOtcExpired, n.contractVars("EXPIRED", contract, contract.BuyerID))
 }
 
 // counterparty mirrors the recipient resolution: notify the party that did NOT
@@ -163,3 +170,4 @@ func (NoopNotifier) CounterOffered(context.Context, *OtcOffer, int64)     {}
 func (NoopNotifier) Accepted(context.Context, *OtcOffer, int64)           {}
 func (NoopNotifier) Canceled(context.Context, *OtcOffer, int64, string)   {}
 func (NoopNotifier) ExpiryReminder(context.Context, *OptionContract, int) {}
+func (NoopNotifier) ContractExpired(context.Context, *OptionContract)     {}

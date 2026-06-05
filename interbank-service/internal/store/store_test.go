@@ -94,7 +94,7 @@ func TestMessageStore_InsertAndLookup(t *testing.T) {
 	}
 }
 
-func TestMessageStore_Lookup_Miss(t *testing.T) {
+func TestMessageStore_Lookup_Miss_Integration(t *testing.T) {
 	pool := testPool(t)
 	s := NewMessageStore(pool)
 	got, err := s.Lookup(context.Background(), DirectionInbound, 999, "nonexistent-key")
@@ -171,7 +171,7 @@ func TestMessageStore_UpdateOptimistic(t *testing.T) {
 	}
 }
 
-func TestMessageStore_FindPending(t *testing.T) {
+func TestMessageStore_FindPending_Integration(t *testing.T) {
 	pool := testPool(t)
 	s := NewMessageStore(pool)
 	ctx := context.Background()
@@ -247,7 +247,7 @@ func TestNegotiationStore_InsertAndFindByID(t *testing.T) {
 	}
 }
 
-func TestNegotiationStore_FindByID_Miss(t *testing.T) {
+func TestNegotiationStore_FindByID_Miss_Integration(t *testing.T) {
 	pool := testPool(t)
 	s := NewNegotiationStore(pool)
 	got, err := s.FindByID(context.Background(), "nonexistent-neg")
@@ -259,7 +259,7 @@ func TestNegotiationStore_FindByID_Miss(t *testing.T) {
 	}
 }
 
-func TestNegotiationStore_MarkClosed(t *testing.T) {
+func TestNegotiationStore_MarkClosed_Integration(t *testing.T) {
 	pool := testPool(t)
 	s := NewNegotiationStore(pool)
 	ctx := context.Background()
@@ -287,7 +287,7 @@ func TestNegotiationStore_MarkClosed(t *testing.T) {
 	}
 }
 
-func TestNegotiationStore_FindByAuthoritativeRef(t *testing.T) {
+func TestNegotiationStore_FindByAuthoritativeRef_Integration(t *testing.T) {
 	pool := testPool(t)
 	s := NewNegotiationStore(pool)
 	ctx := context.Background()
@@ -397,7 +397,7 @@ func TestContractStore_InsertAndFind(t *testing.T) {
 	}
 }
 
-func TestContractStore_SumActiveBySellerAndTicker(t *testing.T) {
+func TestContractStore_SumActiveBySellerAndTicker_Integration(t *testing.T) {
 	pool := testPool(t)
 	nstore := NewNegotiationStore(pool)
 	cstore := NewContractStore(pool)
@@ -439,7 +439,7 @@ func TestContractStore_SumActiveBySellerAndTicker(t *testing.T) {
 	}
 }
 
-func TestContractStore_UpdateStatus(t *testing.T) {
+func TestContractStore_UpdateStatus_Integration(t *testing.T) {
 	pool := testPool(t)
 	nstore := NewNegotiationStore(pool)
 	cstore := NewContractStore(pool)
@@ -532,7 +532,7 @@ func TestTransactionStore_PrepareAndCommit(t *testing.T) {
 	}
 }
 
-func TestTransactionStore_FindByID_Miss(t *testing.T) {
+func TestTransactionStore_FindByID_Miss_Integration(t *testing.T) {
 	pool := testPool(t)
 	s := NewTransactionStore(pool)
 	got, err := s.FindByID(context.Background(), 999, "nonexistent-tx")

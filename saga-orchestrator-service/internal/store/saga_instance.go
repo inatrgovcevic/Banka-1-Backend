@@ -10,8 +10,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// Querier is the subset of *pgxpool.Pool operations used by SagaInstanceStore.
+// It is satisfied by *pgxpool.Pool in production and by in-memory fakes in
+// tests, allowing the store to be exercised without a real PostgreSQL pool.
+type Querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
 
 // State constants — mirror Java SagaState enum.
 const (
@@ -48,12 +58,18 @@ func (s *SagaInstance) IsTerminal() bool {
 
 // SagaInstanceStore provides CRUD operations for saga_instance rows.
 type SagaInstanceStore struct {
-	pool *pgxpool.Pool
+	pool Querier
 }
 
 // NewSagaInstanceStore constructs a store backed by the provided connection pool.
 func NewSagaInstanceStore(pool *pgxpool.Pool) *SagaInstanceStore {
 	return &SagaInstanceStore{pool: pool}
+}
+
+// NewSagaInstanceStoreWithQuerier constructs a store backed by any Querier.
+// Primarily used in unit tests to inject an in-memory fake.
+func NewSagaInstanceStoreWithQuerier(q Querier) *SagaInstanceStore {
+	return &SagaInstanceStore{pool: q}
 }
 
 // FindByTypeAndCorrelation returns the instance matching (sagaType, correlationID).
@@ -218,7 +234,7 @@ func scanRow(row pgx.Row) (*SagaInstance, error) {
 }
 
 // queryRows executes a multi-row query and returns all scanned instances.
-func queryRows(ctx context.Context, pool *pgxpool.Pool, q string, args ...any) ([]SagaInstance, error) {
+func queryRows(ctx context.Context, pool Querier, q string, args ...any) ([]SagaInstance, error) {
 	rows, err := pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: query: %w", err)

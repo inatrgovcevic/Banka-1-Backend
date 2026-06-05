@@ -9,11 +9,17 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// querier is satisfied by *pgxpool.Pool; extracted for unit-test injection.
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
 // Repository reads the analytics_* tables with raw pgx. NUMERIC columns are cast
 // to ::text and parsed via shopspring/decimal to preserve scale (mirrors
 // market-service-go).
 type Repository struct {
-	db *pgxpool.Pool
+	db querier
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {

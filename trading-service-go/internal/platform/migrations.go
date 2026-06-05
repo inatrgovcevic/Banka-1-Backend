@@ -8,8 +8,18 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// migrationDB is the subset of *pgxpool.Pool used by RunMigrations and
+// baselineExistingJavaSchema. *pgxpool.Pool satisfies it; tests inject a fake.
+type migrationDB interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
 
 // RunMigrations applies the .sql files in dir in lexical order, tracking applied
 // files in go_schema_migrations. It mirrors market-service-go's runner with two
@@ -24,6 +34,10 @@ import (
 //     LIQUIBASE_CONTEXTS contains "dev" (the same dev signal the rest of the stack
 //     uses; compose default is "dev"). Keeps demo fixtures out of a prod database.
 func RunMigrations(ctx context.Context, db *pgxpool.Pool, dir string) error {
+	return runMigrations(ctx, db, dir)
+}
+
+func runMigrations(ctx context.Context, db migrationDB, dir string) error {
 	if _, err := db.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS public.go_schema_migrations (
 			filename TEXT PRIMARY KEY,
@@ -117,7 +131,7 @@ func devSeedEnabled() bool {
 // coexistence / cut-over path: the `trading` database was created and owned by
 // Java Liquibase, so the Go baseline must not try to recreate those tables. On a
 // fresh database (no sentinel tables) it is a no-op and the migrations run normally.
-func baselineExistingJavaSchema(ctx context.Context, db *pgxpool.Pool, dir string) error {
+func baselineExistingJavaSchema(ctx context.Context, db migrationDB, dir string) error {
 	var tracked int
 	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM public.go_schema_migrations`).Scan(&tracked); err != nil {
 		return fmt.Errorf("baseline check count failed: %w", err)

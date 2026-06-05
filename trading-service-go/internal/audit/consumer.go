@@ -9,6 +9,24 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+// handleAuditMessage is the per-delivery handler extracted for unit-testability.
+func handleAuditMessage(ctx context.Context, env rabbitmq.Envelope, svc *Service, logger *slog.Logger) rabbitmq.HandlerResult {
+	if len(env.Body) == 0 {
+		logger.Warn("audit: empty payload — skipping")
+		return rabbitmq.Ack
+	}
+	var ev Event
+	if err := json.Unmarshal(env.Body, &ev); err != nil {
+		logger.Error("audit: decode failed — rejecting", "error", err)
+		return rabbitmq.Reject
+	}
+	if err := svc.Record(ctx, ev); err != nil {
+		logger.Error("audit: persist failed — requeueing", "actionType", ev.ActionType, "error", err)
+		return rabbitmq.Requeue
+	}
+	return rabbitmq.Ack
+}
+
 // StartConsumer wires the audit.# consumer (mirrors AuditEventListener's
 // @RabbitListener binding: durable queue audit-log-queue bound to audit.# on
 // the employee.events topic exchange). Producer services across the stack —
@@ -25,23 +43,7 @@ func StartConsumer(ctx context.Context, rmqCfg rabbitmq.Config, svc *Service, lo
 		Concurrency: 1,
 	}
 	handler := func(ctx context.Context, env rabbitmq.Envelope, raw amqp.Delivery) rabbitmq.HandlerResult {
-		if len(env.Body) == 0 {
-			logger.Warn("audit: empty payload — skipping")
-			return rabbitmq.Ack
-		}
-		var ev Event
-		if err := json.Unmarshal(env.Body, &ev); err != nil {
-			logger.Error("audit: decode failed — rejecting", "error", err)
-			return rabbitmq.Reject
-		}
-		if err := svc.Record(ctx, ev); err != nil {
-			// DB hiccup: requeue so the event is not lost (mirrors the Java
-			// listener-container requeue-on-exception default). Unknown action
-			// types never reach here — Record skips them with a nil error.
-			logger.Error("audit: persist failed — requeueing", "actionType", ev.ActionType, "error", err)
-			return rabbitmq.Requeue
-		}
-		return rabbitmq.Ack
+		return handleAuditMessage(ctx, env, svc, logger)
 	}
 	cons, err := rabbitmq.NewConsumer(ctx, rmqCfg, opts, handler, logger)
 	if err != nil {

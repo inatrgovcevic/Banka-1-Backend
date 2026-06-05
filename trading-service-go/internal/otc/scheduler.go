@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	gpdb "banka1/go-platform/db"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -27,7 +26,7 @@ func (s *Service) ExpireOverdueContracts(ctx context.Context) error {
 	expired := 0
 	for i := range stale {
 		c := stale[i]
-		err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+		err := s.runInTx(ctx, func(tx pgx.Tx) error {
 			if err := s.repo.UpdateOptionContractStatus(ctx, tx, c.ID, ContractExpired); err != nil {
 				return err
 			}

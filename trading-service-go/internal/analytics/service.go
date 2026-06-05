@@ -11,11 +11,25 @@ import (
 // Mirrors the Java ResponseStatusException(NOT_FOUND, ...) cases.
 var ErrNotFound = errors.New("analytics: resource not found")
 
+// AnalyticsRepo is the repository interface Service depends on. Exported so
+// external packages (grpc tests) can inject stubs via NewServiceWithRepo.
+type AnalyticsRepo interface {
+	LatestCompletedRun(ctx context.Context) (*JobRun, error)
+	SegmentsByRun(ctx context.Context, runID string) ([]ClientSegment, error)
+	PortfolioRiskByRunAndUser(ctx context.Context, runID string, userID int64) (*PortfolioRisk, error)
+	TopTickersByRun(ctx context.Context, runID string) ([]TopTicker, error)
+}
+
 type Service struct {
-	repo *Repository
+	repo AnalyticsRepo
 }
 
 func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
+}
+
+// NewServiceWithRepo allows tests to inject a stub AnalyticsRepo without a real DB.
+func NewServiceWithRepo(repo AnalyticsRepo) *Service {
 	return &Service{repo: repo}
 }
 

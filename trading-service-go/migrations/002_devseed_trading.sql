@@ -311,6 +311,29 @@ SELECT 9001, 'AAPL', 15, 1, 5, 190.00,
 WHERE NOT EXISTS (SELECT 1 FROM option_contracts WHERE offer_id=9001);
 
 -- ============================================================================
+-- Scenario 28: Kupac ne iskorišćava opciju — ugovor ističe, kupac gubi premiju.
+--              ACTIVE ugovor sa settlement_date u prošlosti (juče). Kada
+--              ExpireOverdueContracts scheduler odradi, status postaje EXPIRED
+--              i prodavčeve rezervisane akcije se oslobađaju. Premija ostaje
+--              kod prodavca — kupac (Mile, id=15) gubi plaćeni iznos.
+--              OTC_SCHEDULERS_ENABLED=true mora biti postavljeno u okruženju.
+-- ============================================================================
+INSERT INTO otc_offers (id, stock_ticker, buyer_id, seller_id, amount, price_per_stock, premium,
+                        settlement_date, status, modified_by, last_modified, created_at, version)
+SELECT 9002, 'NVDA', 15, 1, 3, 850.00, 75.00,
+       (CURRENT_DATE - INTERVAL '1 day')::date, 'ACCEPTED', 'SELLER:1',
+       CURRENT_TIMESTAMP - INTERVAL '31 days', CURRENT_TIMESTAMP - INTERVAL '32 days', 0
+WHERE NOT EXISTS (SELECT 1 FROM otc_offers WHERE id=9002);
+
+INSERT INTO option_contracts (offer_id, stock_ticker, buyer_id, seller_id, amount,
+                              price_per_stock, settlement_date, status,
+                              created_at, version)
+SELECT 9002, 'NVDA', 15, 1, 3, 850.00,
+       (CURRENT_DATE - INTERVAL '1 day')::date, 'ACTIVE',
+       CURRENT_TIMESTAMP - INTERVAL '31 days', 0
+WHERE NOT EXISTS (SELECT 1 FROM option_contracts WHERE offer_id=9002);
+
+-- ============================================================================
 -- Scenario 6: REJECTED ponuda u istoriji — Mile (15) je odbio MSFT ponudu od Ane (2)
 --             Pokriva "Istorija" tab/sortiranje po datumu.
 -- ============================================================================

@@ -13,7 +13,6 @@ import (
 	"banka1/trading-service-go/internal/clients"
 	"banka1/trading-service-go/internal/portfolio"
 
-	gpdb "banka1/go-platform/db"
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 )
@@ -23,14 +22,15 @@ import (
 // accept, after-commit saga publishes) plus the OtcPortfolioService reserve/
 // release helpers and the saga-completion transitions the listeners drive.
 type Service struct {
-	repo      *Repository
-	portfolio *portfolio.Repository
-	market    *clients.MarketClient
-	customer  *clients.CustomerClient
-	employee  *clients.EmployeeClient
+	repo      otcRepo
+	portfolio otcPortfolioRepo
+	market    marketLister
+	customer  customerLookup
+	employee  employeeLookup
 	publisher SagaPublisher
 	notifier  OtcNotifier
 	logger    *slog.Logger
+	runInTx   txRunner
 }
 
 // NewService wires the OTC service. publisher publishes the premium/exercise saga
@@ -41,6 +41,7 @@ func NewService(repo *Repository, portfolioRepo *portfolio.Repository, market *c
 	return &Service{
 		repo: repo, portfolio: portfolioRepo, market: market, customer: customer,
 		employee: employee, publisher: publisher, notifier: notifier, logger: logger,
+		runInTx: poolTxRunner(repo.Pool()),
 	}
 }
 
@@ -77,7 +78,7 @@ func (s *Service) CreateOffer(ctx context.Context, buyerID int64, in CreateOffer
 		Status:         OfferPendingSeller,
 		ModifiedBy:     buyerName,
 	}
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, func(tx pgx.Tx) error {
 		if err := s.repo.InsertOffer(ctx, tx, offer); err != nil {
 			return err
 		}
@@ -96,7 +97,7 @@ func (s *Service) CreateOffer(ctx context.Context, buyerID int64, in CreateOffer
 // blocked — faithful to Java). The offer row is FOR UPDATE locked.
 func (s *Service) CounterOffer(ctx context.Context, offerID, actorID int64, in CounterOfferInput, actorName *string) (*OtcOfferDto, error) {
 	var offer *OtcOffer
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, func(tx pgx.Tx) error {
 		o, err := s.requireOfferForUpdate(ctx, tx, offerID)
 		if err != nil {
 			return err
@@ -146,7 +147,7 @@ func (s *Service) CounterOffer(ctx context.Context, offerID, actorID int64, in C
 func (s *Service) Accept(ctx context.Context, offerID, actorID int64, actorName *string) (*OtcOfferDto, error) {
 	var offer *OtcOffer
 	var contractID int64
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, func(tx pgx.Tx) error {
 		o, err := s.requireOfferForUpdate(ctx, tx, offerID)
 		if err != nil {
 			return err
@@ -238,7 +239,7 @@ func (s *Service) Accept(ctx context.Context, offerID, actorID int64, actorName 
 // status guard in Java).
 func (s *Service) Reject(ctx context.Context, offerID, actorID int64, actorName *string) (*OtcOfferDto, error) {
 	var offer *OtcOffer
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, func(tx pgx.Tx) error {
 		o, err := s.requireOfferForUpdate(ctx, tx, offerID)
 		if err != nil {
 			return err
@@ -270,7 +271,7 @@ func (s *Service) Reject(ctx context.Context, offerID, actorID int64, actorName 
 // retracts it (buyer while PENDING_SELLER, seller while PENDING_BUYER).
 func (s *Service) Withdraw(ctx context.Context, offerID, actorID int64, actorName *string) (*OtcOfferDto, error) {
 	var offer *OtcOffer
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, func(tx pgx.Tx) error {
 		o, err := s.requireOfferForUpdate(ctx, tx, offerID)
 		if err != nil {
 			return err
@@ -370,7 +371,7 @@ func (s *Service) MyContracts(ctx context.Context, userID int64, statusFilter *s
 // Returns the contractID so callers can return a correlationId to the client.
 func (s *Service) ExerciseContract(ctx context.Context, contractID, buyerID int64, fi *FaultInjection) (int64, error) {
 	var event ExerciseRequestedEvent
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, func(tx pgx.Tx) error {
 		c, err := s.repo.FindOptionContractByIDForUpdate(ctx, tx, contractID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
@@ -416,7 +417,7 @@ func (s *Service) ExerciseContract(ctx context.Context, contractID, buyerID int6
 // CompletePremiumTransfer flips PENDING_PREMIUM → ACTIVE (idempotent). Driven by
 // the otc.premium.transfer.completed listener.
 func (s *Service) CompletePremiumTransfer(ctx context.Context, contractID int64) error {
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return s.runInTx(ctx, func(tx pgx.Tx) error {
 		c, err := s.repo.FindOptionContractByIDForUpdate(ctx, tx, contractID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
@@ -441,7 +442,7 @@ func (s *Service) CompletePremiumTransfer(ctx context.Context, contractID int64)
 // FailPremiumTransfer flips PENDING_PREMIUM → CANCELED and releases the reserved
 // stock (idempotent). Driven by the otc.premium.transfer.failed listener.
 func (s *Service) FailPremiumTransfer(ctx context.Context, contractID int64, reason string) error {
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return s.runInTx(ctx, func(tx pgx.Tx) error {
 		c, err := s.repo.FindOptionContractByIDForUpdate(ctx, tx, contractID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
@@ -470,7 +471,7 @@ func (s *Service) FailPremiumTransfer(ctx context.Context, contractID int64, rea
 // reserved-quantity decrement are done separately by the ReservationService when
 // the saga calls /stocks/internal. Driven by the otc.exercise.completed listener.
 func (s *Service) CompleteExercise(ctx context.Context, contractID int64) error {
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return s.runInTx(ctx, func(tx pgx.Tx) error {
 		c, err := s.repo.FindOptionContractByIDForUpdate(ctx, tx, contractID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
@@ -496,7 +497,7 @@ func (s *Service) CompleteExercise(ctx context.Context, contractID int64) error 
 // and compensates. The contract stays ACTIVE so it can be re-exercised.
 // Idempotent: a non-ACTIVE contract is a no-op.
 func (s *Service) RevertExercise(ctx context.Context, contractID int64) error {
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return s.runInTx(ctx, func(tx pgx.Tx) error {
 		c, err := s.repo.FindOptionContractByIDForUpdate(ctx, tx, contractID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
@@ -542,7 +543,7 @@ func (s *Service) GetMyPositions(ctx context.Context, userID int64) ([]OtcPositi
 // position for OTC discovery (is_public = true).
 func (s *Service) AddPosition(ctx context.Context, userID, listingID int64, publicQuantity int) (*OtcPositionDto, error) {
 	var result *portfolio.Portfolio
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, func(tx pgx.Tx) error {
 		p, err := s.portfolio.FindByUserIDAndListingID(ctx, tx, userID, listingID)
 		if err != nil {
 			return err
@@ -578,7 +579,7 @@ func (s *Service) AddPosition(ctx context.Context, userID, listingID int64, publ
 // (is_public unchanged). Cannot exceed quantity-reserved nor drop below reserved.
 func (s *Service) UpdatePosition(ctx context.Context, userID, positionID int64, publicQuantity int) (*OtcPositionDto, error) {
 	var result *portfolio.Portfolio
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runInTx(ctx, func(tx pgx.Tx) error {
 		p, err := s.requireOwnedPosition(ctx, tx, userID, positionID)
 		if err != nil {
 			return err
@@ -611,7 +612,7 @@ func (s *Service) UpdatePosition(ctx context.Context, userID, positionID int64, 
 // market (is_public = false, public_quantity = 0). Refused while shares are
 // reserved.
 func (s *Service) RemovePosition(ctx context.Context, userID, positionID int64) error {
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return s.runInTx(ctx, func(tx pgx.Tx) error {
 		p, err := s.requireOwnedPosition(ctx, tx, userID, positionID)
 		if err != nil {
 			return err

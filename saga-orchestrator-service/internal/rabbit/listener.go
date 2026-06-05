@@ -16,11 +16,18 @@ type Decoder func(body []byte) (any, error)
 // to be nack'd (once, without requeue) and logged at ERROR level.
 type Handler func(ctx context.Context, payload any) error
 
+// ConsumeChannel is the subset of amqp.Channel used by Listener.
+// Using an interface allows unit tests to inject a fake without a broker.
+// *amqp.Channel satisfies this interface.
+type ConsumeChannel interface {
+	Consume(queue, consumer string, autoAck, exclusive, noLocal, noWait bool, args amqp.Table) (<-chan amqp.Delivery, error)
+}
+
 // Listener subscribes to a single queue and dispatches messages to a handler.
 // It ack's on success, nack's-without-requeue on handler or decode error (the
 // broker then dead-letters the message per the queue's x-dead-letter-* args).
 type Listener struct {
-	ch      *amqp.Channel
+	ch      ConsumeChannel
 	queue   string
 	decoder Decoder
 	handler Handler
@@ -29,7 +36,7 @@ type Listener struct {
 
 // NewListener constructs a Listener. ch must already be set up (channel open,
 // topology declared). Each Listener should have its own dedicated channel.
-func NewListener(ch *amqp.Channel, queue string, decoder Decoder, handler Handler, log *slog.Logger) *Listener {
+func NewListener(ch ConsumeChannel, queue string, decoder Decoder, handler Handler, log *slog.Logger) *Listener {
 	return &Listener{
 		ch:      ch,
 		queue:   queue,

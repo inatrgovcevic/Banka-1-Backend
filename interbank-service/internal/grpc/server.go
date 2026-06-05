@@ -5,6 +5,7 @@
 package grpc
 
 import (
+	"context"
 	"log/slog"
 	"net"
 
@@ -15,6 +16,14 @@ import (
 	"github.com/raf-si-2025/banka-1-go/interbank-service/internal/service"
 	"github.com/raf-si-2025/banka-1-go/interbank-service/internal/store"
 )
+
+// GrpcMessageStore is the persistence seam for the idempotency cache used by
+// PostMessage. It is satisfied by *store.MessageStore in production and by
+// in-memory fakes in tests, mirroring the HTTP layer's InboundMessageStore.
+type GrpcMessageStore interface {
+	Lookup(ctx context.Context, direction string, senderRouting int, key string) (*store.Message, error)
+	Insert(ctx context.Context, m *store.Message) error
+}
 
 // Deps holds every dependency the gRPC server handlers need.
 // It mirrors what main.go already wires up for the HTTP layer, so no new
@@ -30,7 +39,7 @@ type Deps struct {
 	Coordinator *service.Coordinator
 
 	// Stores (needed for idempotency cache + direct lookups).
-	MessageStore  *store.MessageStore
+	MessageStore  GrpcMessageStore
 	NegStore      *store.NegotiationStore
 	ContractStore *store.ContractStore
 

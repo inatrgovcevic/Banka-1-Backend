@@ -56,7 +56,7 @@ type Transaction struct {
 	FinalizedAt          *time.Time
 }
 
-type TransactionStore struct{ pool *pgxpool.Pool }
+type TransactionStore struct{ pool querier }
 
 func NewTransactionStore(pool *pgxpool.Pool) *TransactionStore {
 	return &TransactionStore{pool: pool}

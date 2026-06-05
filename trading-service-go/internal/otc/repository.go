@@ -28,12 +28,25 @@ var ErrNotFound = errors.New("otc: not found")
 // the stock_reservations / stock_ownership_transfers tables in reservations.go).
 type Repository struct {
 	db *pgxpool.Pool
+	// q is the Querier used by the standalone (non-tx) read paths. It defaults to
+	// db (the pool) in production; tests inject a fake Querier so the repository
+	// query/scan paths are unit-testable without Postgres.
+	q Querier
 }
 
-func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
+func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db, q: db} }
 
 // Pool exposes the pool so the service can open a RunInTx itself.
 func (r *Repository) Pool() *pgxpool.Pool { return r.db }
+
+// querier returns the standalone Querier (the injected fake in tests, else the
+// pool). Guards against a zero-value Repository where q was never set.
+func (r *Repository) querier() Querier {
+	if r.q != nil {
+		return r.q
+	}
+	return r.db
+}
 
 // =============================== otc_offers ===============================
 
@@ -141,7 +154,7 @@ func (r *Repository) UpdateOffer(ctx context.Context, q Querier, o *OtcOffer) er
 // where ACTIVE = {PENDING_BUYER, PENDING_SELLER}. No ORDER BY (matches the Java
 // derived query → same physical row order against the shared Postgres).
 func (r *Repository) FindActiveOffersForUser(ctx context.Context, userID int64) ([]OtcOffer, error) {
-	rows, err := r.db.Query(ctx, `SELECT `+offerColumns+` FROM otc_offers
+	rows, err := r.querier().Query(ctx, `SELECT `+offerColumns+` FROM otc_offers
 		WHERE (buyer_id = $1 AND status IN ('PENDING_BUYER','PENDING_SELLER'))
 		   OR (seller_id = $1 AND status IN ('PENDING_BUYER','PENDING_SELLER'))`, userID)
 	if err != nil {
@@ -271,7 +284,7 @@ func (r *Repository) SumActiveBySellerAndTicker(ctx context.Context, q Querier, 
 // FindContractsByBuyerIDAndStatus / FindContractsBySellerIDAndStatus mirror the
 // derived queries used by myContracts. No ORDER BY (matches Java).
 func (r *Repository) FindContractsByBuyerIDAndStatus(ctx context.Context, buyerID int64, status string) ([]OptionContract, error) {
-	rows, err := r.db.Query(ctx, `SELECT `+contractColumns+` FROM option_contracts
+	rows, err := r.querier().Query(ctx, `SELECT `+contractColumns+` FROM option_contracts
 		WHERE buyer_id = $1 AND status = $2`, buyerID, status)
 	if err != nil {
 		return nil, err
@@ -280,7 +293,7 @@ func (r *Repository) FindContractsByBuyerIDAndStatus(ctx context.Context, buyerI
 }
 
 func (r *Repository) FindContractsBySellerIDAndStatus(ctx context.Context, sellerID int64, status string) ([]OptionContract, error) {
-	rows, err := r.db.Query(ctx, `SELECT `+contractColumns+` FROM option_contracts
+	rows, err := r.querier().Query(ctx, `SELECT `+contractColumns+` FROM option_contracts
 		WHERE seller_id = $1 AND status = $2`, sellerID, status)
 	if err != nil {
 		return nil, err
@@ -291,7 +304,7 @@ func (r *Repository) FindContractsBySellerIDAndStatus(ctx context.Context, selle
 // FindContractsByStatusAndSettlementDateBefore mirrors
 // findByStatusAndSettlementDateBefore — the expire-overdue cron input.
 func (r *Repository) FindContractsByStatusAndSettlementDateBefore(ctx context.Context, status string, before time.Time) ([]OptionContract, error) {
-	rows, err := r.db.Query(ctx, `SELECT `+contractColumns+` FROM option_contracts
+	rows, err := r.querier().Query(ctx, `SELECT `+contractColumns+` FROM option_contracts
 		WHERE status = $1 AND settlement_date < $2::date`, status, before)
 	if err != nil {
 		return nil, err
@@ -302,7 +315,7 @@ func (r *Repository) FindContractsByStatusAndSettlementDateBefore(ctx context.Co
 // FindContractsByStatusAndSettlementDate mirrors findByStatusAndSettlementDate —
 // the expiry-reminder cron input (contracts settling exactly on the D-N target).
 func (r *Repository) FindContractsByStatusAndSettlementDate(ctx context.Context, status string, date time.Time) ([]OptionContract, error) {
-	rows, err := r.db.Query(ctx, `SELECT `+contractColumns+` FROM option_contracts
+	rows, err := r.querier().Query(ctx, `SELECT `+contractColumns+` FROM option_contracts
 		WHERE status = $1 AND settlement_date = $2::date`, status, date)
 	if err != nil {
 		return nil, err

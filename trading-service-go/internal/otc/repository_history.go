@@ -113,7 +113,7 @@ func (r *Repository) HistoryForUser(ctx context.Context, userID int64, status *s
 	}
 	query := `SELECT ` + historyColumns + ` FROM otc_negotiation_history WHERE ` +
 		strings.Join(conds, " AND ") + ` ORDER BY changed_at DESC`
-	rows, err := r.db.Query(ctx, query, args...)
+	rows, err := r.querier().Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

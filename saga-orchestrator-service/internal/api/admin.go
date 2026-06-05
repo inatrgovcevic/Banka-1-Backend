@@ -31,9 +31,20 @@ type SagaDispatcher interface {
 	Dispatch(ctx context.Context, inst *store.SagaInstance) error
 }
 
+// AdminStore is the subset of *store.SagaInstanceStore consumed by AdminHandler.
+// It is defined as an interface so that unit tests can inject an in-memory fake
+// without requiring a real PostgreSQL connection pool.
+type AdminStore interface {
+	ListByState(ctx context.Context, state string, limit, offset int) ([]store.SagaInstance, error)
+	ListAll(ctx context.Context, limit, offset int) ([]store.SagaInstance, error)
+	FindByID(ctx context.Context, id uuid.UUID) (*store.SagaInstance, error)
+	FindByTypeAndCorrelation(ctx context.Context, sagaType, correlationID string) (*store.SagaInstance, error)
+	UpdateOptimistic(ctx context.Context, inst *store.SagaInstance) error
+}
+
 // AdminHandler serves the admin HTTP endpoints.
 type AdminHandler struct {
-	store      *store.SagaInstanceStore
+	store      AdminStore
 	dispatcher SagaDispatcher
 }
 
@@ -41,6 +52,12 @@ type AdminHandler struct {
 // dispatcher. Pass nil for dispatcher to disable the recovery endpoints
 // (they return 503).
 func NewAdminHandler(s *store.SagaInstanceStore, d SagaDispatcher) *AdminHandler {
+	return &AdminHandler{store: s, dispatcher: d}
+}
+
+// NewAdminHandlerWithStore creates an AdminHandler backed by any AdminStore.
+// Primarily used in unit tests to inject an in-memory fake.
+func NewAdminHandlerWithStore(s AdminStore, d SagaDispatcher) *AdminHandler {
 	return &AdminHandler{store: s, dispatcher: d}
 }
 

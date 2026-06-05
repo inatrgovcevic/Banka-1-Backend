@@ -19,16 +19,41 @@ import (
 // used when sweeping user-service for all agents.
 const employeePageSize = 100
 
+// ActuaryRepo abstracts *Repository so Service can be unit-tested from external packages.
+type ActuaryRepo interface {
+	FindOrCreate(ctx context.Context, employeeID int64) (*ActuaryInfo, error)
+	FindByEmployeeID(ctx context.Context, employeeID int64) (*ActuaryInfo, error)
+	UpdateLimit(ctx context.Context, employeeID int64, limit decimal.Decimal) error
+	ResetLimit(ctx context.Context, employeeID int64) error
+	SetNeedApproval(ctx context.Context, employeeID int64, value bool) error
+	SumCommissionByActuary(ctx context.Context, from, to time.Time) ([]ProfitRow, error)
+}
+
+// EmployeeSearcher abstracts *clients.EmployeeClient so Service can be unit-tested.
+type EmployeeSearcher interface {
+	GetEmployee(ctx context.Context, id int64) (*clients.Employee, error)
+	SearchEmployees(ctx context.Context, email, ime, prezime, pozicija *string, page, size int) (*clients.EmployeePage, error)
+}
+
+// aliases for internal use
+type actuaryRepo = ActuaryRepo
+type employeeSearcher = EmployeeSearcher
+
 // Service implements the /actuaries supervisor operations, merging user-service
 // employee data with local actuary_info. Mirrors ActuaryServiceImpl.
 type Service struct {
-	repo      *Repository
-	employees *clients.EmployeeClient
+	repo      actuaryRepo
+	employees employeeSearcher
 	auditor   *audit.Service
 }
 
 func NewService(repo *Repository, employees *clients.EmployeeClient, auditor *audit.Service) *Service {
 	return &Service{repo: repo, employees: employees, auditor: auditor}
+}
+
+// NewServiceForTest creates a Service with interface stubs for unit testing from external packages.
+func NewServiceForTest(repo ActuaryRepo, employees EmployeeSearcher) *Service {
+	return &Service{repo: repo, employees: employees}
 }
 
 // GetAgents returns a Spring-style page of AGENT employees merged with their

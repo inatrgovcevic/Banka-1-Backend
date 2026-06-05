@@ -37,6 +37,13 @@ type StoreForScheduler interface {
 	FindStuck(ctx context.Context, cutoff time.Time, limit int) ([]store.SagaInstance, error)
 }
 
+// idempotencyExecer is the subset of *pgxpool.Pool used for the idempotency-log
+// DELETE. Extracted as an interface so cleanupIdempotencyLog can be unit-tested
+// with a fake. *pgxpool.Pool satisfies this interface.
+type idempotencyExecer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
 // CleanupConfig controls the cleanup scheduler behaviour.
 // Fields map to Config.Saga.Cleanup in config.go.
 type CleanupConfig struct {
@@ -60,7 +67,7 @@ var stuckTotal int64
 // Scheduler runs periodic cleanup tasks.
 type Scheduler struct {
 	store              StoreForScheduler
-	pool               *pgxpool.Pool // may be nil in test mode
+	pool               idempotencyExecer // may be nil in test mode
 	cfg                CleanupConfig
 	log                *slog.Logger
 	idempotencyMissing bool // set to true once the "table missing" warning fires
@@ -98,6 +105,22 @@ func NewForTest(
 		cfg:                cfg,
 		log:                log,
 		idempotencyMissing: true, // skip idempotency cleanup in tests (no pool)
+	}
+}
+
+// newForTestWithExecer constructs a Scheduler that runs the idempotency-log
+// cleanup against an injected execer. Test use only.
+func newForTestWithExecer(
+	s StoreForScheduler,
+	exec idempotencyExecer,
+	cfg CleanupConfig,
+	log *slog.Logger,
+) *Scheduler {
+	return &Scheduler{
+		store: s,
+		pool:  exec,
+		cfg:   cfg,
+		log:   log,
 	}
 }
 

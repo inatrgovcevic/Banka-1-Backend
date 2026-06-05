@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Audit action types — mirror AuditActionType. Stored as the enum name string.
@@ -45,9 +47,16 @@ type Event struct {
 	Timestamp  *int64  `json:"timestamp"`
 }
 
+// auditRepo is the subset of *Repository used by Service. *Repository satisfies it.
+type auditRepo interface {
+	Pool() *pgxpool.Pool
+	Insert(ctx context.Context, q Querier, e *Entry) error
+	Search(ctx context.Context, q Querier, f SearchFilter) ([]Entry, int64, error)
+}
+
 // Service is the audit sink + query backend.
 type Service struct {
-	repo   *Repository
+	repo   auditRepo
 	logger *slog.Logger
 }
 
@@ -55,8 +64,9 @@ func NewService(repo *Repository, logger *slog.Logger) *Service {
 	return &Service{repo: repo, logger: logger}
 }
 
-// Repo exposes the repository for the query handler.
-func (s *Service) Repo() *Repository { return s.repo }
+// Repo exposes the repository for the query handler (the query handler needs
+// the concrete *Repository for Search; production always injects *Repository).
+func (s *Service) Repo() auditRepo { return s.repo }
 
 // Record mirrors AuditEventListener.onAuditEvent: an unknown/blank actionType
 // is logged and skipped (never an error — no poison loop); the timestamp falls

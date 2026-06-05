@@ -43,7 +43,7 @@ type ProfitRow struct {
 }
 
 type Repository struct {
-	db *pgxpool.Pool
+	db Querier
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {

@@ -49,7 +49,7 @@ type Contract struct {
 	ExpiredAt              *time.Time
 }
 
-type ContractStore struct{ pool *pgxpool.Pool }
+type ContractStore struct{ pool querier }
 
 func NewContractStore(pool *pgxpool.Pool) *ContractStore { return &ContractStore{pool: pool} }
 

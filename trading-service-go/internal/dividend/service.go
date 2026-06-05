@@ -10,7 +10,6 @@ import (
 	"banka1/trading-service-go/internal/order"
 	"banka1/trading-service-go/internal/portfolio"
 
-	gpdb "banka1/go-platform/db"
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 )
@@ -34,13 +33,14 @@ var quarters = decimal.NewFromInt(4)
 // separate @Transactional bean for exactly that reason): one failed payout
 // rolls back only itself, the rest of the run continues.
 type Service struct {
-	repo       *Repository
-	orders     *order.Repository
-	portfolios *portfolio.Repository
-	market     *clients.MarketClient
-	account    *clients.AccountClient
-	taxRate    decimal.Decimal
-	logger     *slog.Logger
+	repo        dividendRepo
+	portfolios  dividendPortfolios
+	market      dividendMarket
+	account     dividendAccount
+	bankHeldBuy bankHeldFn
+	runTx       txRunner
+	taxRate     decimal.Decimal
+	logger      *slog.Logger
 }
 
 // NewService wires the dividend payout service. taxRate mirrors
@@ -49,17 +49,20 @@ func NewService(repo *Repository, orders *order.Repository, portfolios *portfoli
 	cl *clients.Clients, taxRate decimal.Decimal, logger *slog.Logger) *Service {
 	return &Service{
 		repo:       repo,
-		orders:     orders,
 		portfolios: portfolios,
 		market:     cl.Market,
 		account:    cl.Account,
-		taxRate:    taxRate,
-		logger:     logger,
+		bankHeldBuy: func(ctx context.Context, q Querier, userID, listingID int64) (int64, error) {
+			return orders.BankHeldBuyQuantity(ctx, q, userID, listingID)
+		},
+		runTx:   poolTxRunner(repo.Pool()),
+		taxRate: taxRate,
+		logger:  logger,
 	}
 }
 
 // Repo exposes the payout repository for the read-side handlers.
-func (s *Service) Repo() *Repository { return s.repo }
+func (s *Service) Repo() dividendRepo { return s.repo }
 
 // Distribute mirrors DividendDistributionService.distribute: for every STOCK
 // with a positive dividendYield, pay every holder (portfolio row with
@@ -107,12 +110,12 @@ func (s *Service) Distribute(ctx context.Context, asOf time.Time) int {
 // with 15% to the state account.
 func (s *Service) payoutForHolder(ctx context.Context, stock *clients.DividendData, holder *portfolio.Portfolio, asOf time.Time) (bool, error) {
 	anyPaid := false
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runTx(ctx, func(tx pgx.Tx) error {
 		userID := holder.UserID
 		listingID := stock.ListingID
 		total := holder.Quantity
 
-		rawBank, err := s.orders.BankHeldBuyQuantity(ctx, tx, userID, listingID)
+		rawBank, err := s.bankHeldBuy(ctx, tx, userID, listingID)
 		if err != nil {
 			return err
 		}

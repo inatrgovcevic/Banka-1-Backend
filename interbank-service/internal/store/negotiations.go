@@ -41,7 +41,7 @@ type Negotiation struct {
 }
 
 type NegotiationStore struct {
-	pool *pgxpool.Pool
+	pool querier
 }
 
 func NewNegotiationStore(pool *pgxpool.Pool) *NegotiationStore {

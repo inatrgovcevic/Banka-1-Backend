@@ -11,6 +11,7 @@ import (
 
 	gpdb "banka1/go-platform/db"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 )
 
@@ -28,16 +29,50 @@ type TaxReporter interface {
 	CurrentMonthUnpaidTax(ctx context.Context, userID int64) (decimal.Decimal, error)
 }
 
+// portfolioRepo abstracts *Repository so the Service can be unit-tested with a
+// stub. *Repository satisfies this interface.
+type portfolioRepo interface {
+	Pool() *pgxpool.Pool
+	FindByUserID(ctx context.Context, q Querier, userID int64) ([]Portfolio, error)
+	FindByID(ctx context.Context, q Querier, id int64) (*Portfolio, error)
+	FindByUserIDAndListingID(ctx context.Context, q Querier, userID, listingID int64) (*Portfolio, error)
+	UpdatePublic(ctx context.Context, q Querier, id int64, publicQuantity int, isPublic bool) error
+	Insert(ctx context.Context, q Querier, userID, listingID int64, listingType string, quantity int, avg decimal.Decimal) error
+	UpdateQuantityAndAvg(ctx context.Context, q Querier, id int64, quantity int, avg decimal.Decimal) error
+	UpdateQuantity(ctx context.Context, q Querier, id int64, quantity int) error
+	Delete(ctx context.Context, q Querier, id int64) error
+}
+
+// marketLister / accountMover abstract the client subsets the service uses.
+type marketLister interface {
+	GetListing(ctx context.Context, id int64) (*clients.StockListing, error)
+	Calculate(ctx context.Context, from, to string, amount decimal.Decimal) (*clients.ExchangeRate, error)
+}
+
+type accountMover interface {
+	GetBankAccount(ctx context.Context, currency string) (*clients.BankAccount, error)
+	GetAccountDetailsByID(ctx context.Context, accountID int64) (*clients.AccountDetails, error)
+	GetGovernmentBankAccountRsd(ctx context.Context) (*clients.AccountDetails, error)
+	Transaction(ctx context.Context, payment clients.Payment) error
+}
+
+// txRunner runs fn in a transaction; production wraps gpdb.RunInTx, tests fake it.
+type txRunner func(ctx context.Context, fn func(pgx.Tx) error) error
+
 // Service implements the /portfolio operations. Mirrors PortfolioServiceImpl.
 type Service struct {
-	repo    *Repository
-	market  *clients.MarketClient
-	account *clients.AccountClient
+	repo    portfolioRepo
+	market  marketLister
+	account accountMover
 	tax     TaxReporter
+	runInTx txRunner
 }
 
 func NewService(repo *Repository, market *clients.MarketClient, account *clients.AccountClient, tax TaxReporter) *Service {
-	return &Service{repo: repo, market: market, account: account, tax: tax}
+	return &Service{repo: repo, market: market, account: account, tax: tax,
+		runInTx: func(ctx context.Context, fn func(pgx.Tx) error) error {
+			return gpdb.RunInTx(ctx, repo.Pool(), pgx.TxOptions{}, fn)
+		}}
 }
 
 // GetPortfolio returns the holdings enriched with market data plus totalProfit,
@@ -123,7 +158,7 @@ func (s *Service) ExerciseOption(ctx context.Context, userID int64, isAgent bool
 	if !isAgent {
 		return api.NewOrderError(403, "Only actuaries can exercise options")
 	}
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return s.runInTx(ctx, func(tx pgx.Tx) error {
 		optionPortfolio, err := s.getOwnedPortfolio(ctx, tx, userID, portfolioID)
 		if err != nil {
 			return err

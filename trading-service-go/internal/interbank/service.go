@@ -10,10 +10,8 @@ import (
 	"strings"
 
 	"banka1/trading-service-go/internal/api"
-	"banka1/trading-service-go/internal/clients"
 	"banka1/trading-service-go/internal/portfolio"
 
-	gpdb "banka1/go-platform/db"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -28,9 +26,10 @@ import (
 // Java fetches the row by id without a lock in commit/release. Each interbank
 // operation locks exactly one portfolio row, so there is no lock-ordering hazard.
 type Service struct {
-	repo          *Repository
-	portfolio     *portfolio.Repository
-	market        *clients.MarketClient
+	repo          interbankRepo
+	portfolio     interbankPortfolio
+	market        interbankMarket
+	runTx         txRunner
 	routingNumber int
 	logger        *slog.Logger
 }
@@ -39,8 +38,15 @@ type Service struct {
 // portfolio repo + the market client (ticker resolution). routingNumber is this
 // bank's interbank routing number (BANKA1_ROUTING_NUMBER, default 111), advertised
 // in the public-stocks foreign-bank id.
-func NewService(repo *Repository, portfolioRepo *portfolio.Repository, market *clients.MarketClient, routingNumber int, logger *slog.Logger) *Service {
-	return &Service{repo: repo, portfolio: portfolioRepo, market: market, routingNumber: routingNumber, logger: logger}
+func NewService(repo *Repository, portfolioRepo *portfolio.Repository, market interbankMarket, routingNumber int, logger *slog.Logger) *Service {
+	return &Service{
+		repo:          repo,
+		portfolio:     portfolioRepo,
+		market:        market,
+		runTx:         poolTxRunner(repo.Pool()),
+		routingNumber: routingNumber,
+		logger:        logger,
+	}
 }
 
 // ============================ stock 2PC (public) ===========================
@@ -51,7 +57,7 @@ func NewService(repo *Repository, portfolioRepo *portfolio.Repository, market *c
 // returning the new reservation UUID. One transaction.
 func (s *Service) ReserveStock(ctx context.Context, ownerUserID int64, ticker string, quantity, transactionIDRouting int, transactionIDLocal string) (string, error) {
 	var reservationID string
-	err := gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err := s.runTx(ctx, func(tx pgx.Tx) error {
 		id, e := s.reserveStockTx(ctx, tx, ownerUserID, ticker, quantity, transactionIDRouting, transactionIDLocal)
 		reservationID = id
 		return e
@@ -66,7 +72,7 @@ func (s *Service) ReserveStock(ctx context.Context, ownerUserID int64, ticker st
 // (quantity -= qty AND reserved_quantity -= qty, both floored at 0). Idempotent —
 // an already-COMMITTED reservation is a no-op.
 func (s *Service) CommitStock(ctx context.Context, reservationID string) error {
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return s.runTx(ctx, func(tx pgx.Tx) error {
 		return s.commitStockTx(ctx, tx, reservationID)
 	})
 }
@@ -75,7 +81,7 @@ func (s *Service) CommitStock(ctx context.Context, reservationID string) error {
 // (reserved_quantity -= qty only; quantity untouched). Idempotent — an
 // already-RELEASED reservation is a no-op.
 func (s *Service) ReleaseStock(ctx context.Context, reservationID string) error {
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return s.runTx(ctx, func(tx pgx.Tx) error {
 		return s.releaseStockTx(ctx, tx, reservationID)
 	})
 }
@@ -204,7 +210,7 @@ func (s *Service) releaseStockTx(ctx context.Context, tx pgx.Tx, reservationID s
 // Idempotent — an existing row for the negotiationId returns a no-op (204) without
 // re-reserving or overriding the original stock reservation.
 func (s *Service) ReserveOption(ctx context.Context, negotiationID string, sellerForeignID *string, ticker string, quantity int) error {
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return s.runTx(ctx, func(tx pgx.Tx) error {
 		existing, err := s.repo.FindOptionReservationByNegotiationID(ctx, tx, negotiationID)
 		if err != nil {
 			return err
@@ -238,7 +244,7 @@ func (s *Service) ReserveOption(ctx context.Context, negotiationID string, selle
 // mapped stock reservation and flip the option to EXERCISED. Idempotent — a
 // missing / already-EXERCISED / RELEASED reservation is a no-op (204).
 func (s *Service) ExerciseOption(ctx context.Context, negotiationID string) error {
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return s.runTx(ctx, func(tx pgx.Tx) error {
 		res, err := s.repo.FindOptionReservationByNegotiationID(ctx, tx, negotiationID)
 		if err != nil {
 			return err
@@ -266,7 +272,7 @@ func (s *Service) ExerciseOption(ctx context.Context, negotiationID string) erro
 // stock reservation and flip the option to RELEASED. Idempotent — a missing /
 // already-RELEASED / EXERCISED reservation is a no-op (204).
 func (s *Service) ReleaseOption(ctx context.Context, negotiationID string) error {
-	return gpdb.RunInTx(ctx, s.repo.Pool(), pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return s.runTx(ctx, func(tx pgx.Tx) error {
 		res, err := s.repo.FindOptionReservationByNegotiationID(ctx, tx, negotiationID)
 		if err != nil {
 			return err
