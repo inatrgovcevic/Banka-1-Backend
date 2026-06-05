@@ -17,6 +17,7 @@ type Config struct {
 	DBName     string
 	DBUser     string
 	DBPassword string
+	DBSSLMode  string
 
 	RabbitHost     string
 	RabbitPort     string
@@ -79,6 +80,7 @@ func Load() Config {
 		DBName:     env("BANKING_CORE_DB_NAME", "banking_core"),
 		DBUser:     firstEnv("BANKING_CORE_DB_USER", "POSTGRES_USER", "postgres"),
 		DBPassword: firstEnv("BANKING_CORE_DB_PASSWORD", "POSTGRES_PASSWORD", "postgres"),
+		DBSSLMode:  firstEnv("BANKING_CORE_DB_SSLMODE", "POSTGRES_SSLMODE", "disable"),
 
 		RabbitHost:     env("RABBITMQ_HOST", "rabbitmq"),
 		RabbitPort:     env("RABBITMQ_PORT", "5672"),
@@ -155,7 +157,7 @@ func (c Config) DatabaseURL() string {
 		Path:   c.DBName,
 	}
 	q := u.Query()
-	q.Set("sslmode", "disable")
+	q.Set("sslmode", c.DBSSLMode)
 	u.RawQuery = q.Encode()
 	return u.String()
 }

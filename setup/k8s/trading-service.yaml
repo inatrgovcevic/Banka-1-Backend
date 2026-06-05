@@ -13,6 +13,7 @@ spec:
     - name: grpc
       port: 9088
       targetPort: grpc
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -68,6 +69,8 @@ spec:
                 secretKeyRef:
                   name: db-pguser-db
                   key: password
+            - name: TRADING_DB_SSLMODE
+              value: require
             - name: LIQUIBASE_CONTEXTS
               value: dev
             - name: JWT_SECRET

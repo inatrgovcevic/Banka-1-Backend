@@ -15,6 +15,7 @@ type Config struct {
 	DBName     string
 	DBUser     string
 	DBPassword string
+	DBSSLMode  string
 	JWT        JWTConfig
 	CORS       CORSConfig
 	Stock      StockConfig
@@ -67,6 +68,7 @@ func LoadConfig() Config {
 		DBName:     getEnv("MARKET_SERVICE_DB_NAME", "market_service"),
 		DBUser:     getEnv("MARKET_SERVICE_DB_USER", "postgres"),
 		DBPassword: getEnv("MARKET_SERVICE_DB_PASSWORD", "postgres"),
+		DBSSLMode:  getEnv("MARKET_SERVICE_DB_SSLMODE", getEnv("POSTGRES_SSLMODE", "disable")),
 		JWT: JWTConfig{
 			Secret:           getEnv("JWT_SECRET", "development_market_service_secret_123456"),
 			Issuer:           getEnv("BANKA_SECURITY_ISSUER", getEnv("BANKA_SECURITY_ISSUER_FALLBACK", "banka1")),
@@ -104,7 +106,7 @@ func LoadConfig() Config {
 }
 
 func (c Config) DatabaseURL() string {
-	return "postgres://" + c.DBUser + ":" + c.DBPassword + "@" + c.DBHost + ":" + c.DBPort + "/" + c.DBName + "?sslmode=disable"
+	return "postgres://" + c.DBUser + ":" + c.DBPassword + "@" + c.DBHost + ":" + c.DBPort + "/" + c.DBName + "?sslmode=" + c.DBSSLMode
 }
 
 func getEnv(key, fallback string) string {

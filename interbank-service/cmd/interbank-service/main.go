@@ -81,7 +81,7 @@ func run() error {
 		sqlDB.Close()
 		return fmt.Errorf("goose set dialect: %w", err)
 	}
-	if err := goose.Up(sqlDB, cfg.Server.MigrationsPath); err != nil {
+	if err := goose.Up(sqlDB, cfg.Server.MigrationsPath, goose.WithAllowMissing()); err != nil {
 		sqlDB.Close()
 		return fmt.Errorf("goose up: %w", err)
 	}

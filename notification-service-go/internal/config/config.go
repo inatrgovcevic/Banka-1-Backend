@@ -53,6 +53,7 @@ type DBConfig struct {
 	Name     string
 	User     string
 	Password string
+	SSLMode  string
 }
 
 type SMTPConfig struct {
@@ -150,6 +151,7 @@ func Load() (*Config, error) {
 			Name:     getenv("POSTGRES_DB", "notification_db"),
 			User:     getenv("POSTGRES_USER", "postgres"),
 			Password: getenv("POSTGRES_PASSWORD", "postgres"),
+			SSLMode:  getenv("POSTGRES_SSLMODE", "disable"),
 		},
 		SMTP: SMTPConfig{
 			Host:               getenv("MAIL_HOST", "smtp.gmail.com"),
@@ -171,8 +173,8 @@ func Load() (*Config, error) {
 // NewDatabasePool opens a pgxpool connection using the DB config section.
 func NewDatabasePool(cfg DBConfig) (*pgxpool.Pool, error) {
 	databaseURL := fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?sslmode=disable",
-		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Name,
+		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Name, cfg.SSLMode,
 	)
 
 	pool, err := pgxpool.New(context.Background(), databaseURL)

@@ -75,7 +75,7 @@ spec:
                   name: db-pguser-db
                   key: password
             - name: INTERBANK_DB_URL
-              value: postgres://$(INTERBANK_DB_USER):$(INTERBANK_DB_PASSWORD)@$(INTERBANK_DB_HOST):$(INTERBANK_DB_PORT)/$(INTERBANK_DB_NAME)?sslmode=disable
+              value: postgres://$(INTERBANK_DB_USER):$(INTERBANK_DB_PASSWORD)@$(INTERBANK_DB_HOST):$(INTERBANK_DB_PORT)/$(INTERBANK_DB_NAME)?sslmode=require
             - name: INTERBANK_DB_MAX_CONNS
               value: "10"
             - name: INTERBANK_DB_MIN_CONNS
