@@ -442,7 +442,7 @@ func (r *Repository) ListingExists(ctx context.Context, id int64) (bool, error) 
 
 func (r *Repository) ListPriceAlertsByUser(ctx context.Context, userID int64) ([]PriceAlert, error) {
 	rows, err := r.db.Query(ctx, `select id, user_id, recipient_type, listing_id, condition, threshold::text,
-		notification_type, active, created_at, last_triggered_at
+		notification_type, user_email, username, active, created_at, last_triggered_at
 		from price_alerts where user_id=$1 order by created_at desc`, userID)
 	if err != nil {
 		return nil, err
@@ -453,12 +453,12 @@ func (r *Repository) ListPriceAlertsByUser(ctx context.Context, userID int64) ([
 
 func (r *Repository) CreatePriceAlert(ctx context.Context, alert PriceAlert) (*PriceAlert, error) {
 	err := r.db.QueryRow(ctx, `insert into price_alerts
-		(user_id, recipient_type, listing_id, condition, threshold, notification_type, active, created_at)
-		values ($1,$2,$3,$4,$5::numeric,$6,$7,$8)
-		returning id, user_id, recipient_type, listing_id, condition, threshold::text, notification_type, active, created_at, last_triggered_at`,
-		alert.UserID, alert.RecipientType, alert.ListingID, alert.Condition, alert.Threshold, alert.NotificationType, alert.Active, alert.CreatedAt).
+		(user_id, recipient_type, listing_id, condition, threshold, notification_type, user_email, username, active, created_at)
+		values ($1,$2,$3,$4,$5::numeric,$6,$7,$8,$9,$10)
+		returning id, user_id, recipient_type, listing_id, condition, threshold::text, notification_type, user_email, username, active, created_at, last_triggered_at`,
+		alert.UserID, alert.RecipientType, alert.ListingID, alert.Condition, alert.Threshold, alert.NotificationType, alert.UserEmail, alert.Username, alert.Active, alert.CreatedAt).
 		Scan(&alert.ID, &alert.UserID, &alert.RecipientType, &alert.ListingID, &alert.Condition, &alert.Threshold,
-			&alert.NotificationType, &alert.Active, &alert.CreatedAt, &alert.LastTriggeredAt)
+			&alert.NotificationType, &alert.UserEmail, &alert.Username, &alert.Active, &alert.CreatedAt, &alert.LastTriggeredAt)
 	if err != nil {
 		return nil, err
 	}
@@ -469,9 +469,9 @@ func (r *Repository) ToggleOwnedPriceAlert(ctx context.Context, userID, alertID 
 	var alert PriceAlert
 	err := r.db.QueryRow(ctx, `update price_alerts set active = not active
 		where id=$1 and user_id=$2
-		returning id, user_id, recipient_type, listing_id, condition, threshold::text, notification_type, active, created_at, last_triggered_at`,
+		returning id, user_id, recipient_type, listing_id, condition, threshold::text, notification_type, user_email, username, active, created_at, last_triggered_at`,
 		alertID, userID).Scan(&alert.ID, &alert.UserID, &alert.RecipientType, &alert.ListingID, &alert.Condition, &alert.Threshold,
-		&alert.NotificationType, &alert.Active, &alert.CreatedAt, &alert.LastTriggeredAt)
+		&alert.NotificationType, &alert.UserEmail, &alert.Username, &alert.Active, &alert.CreatedAt, &alert.LastTriggeredAt)
 	if err != nil {
 		return nil, err
 	}
@@ -488,7 +488,7 @@ func (r *Repository) DeleteOwnedPriceAlert(ctx context.Context, userID, alertID 
 
 func (r *Repository) ListActivePriceAlerts(ctx context.Context) ([]PriceAlert, error) {
 	rows, err := r.db.Query(ctx, `select id, user_id, recipient_type, listing_id, condition, threshold::text,
-		notification_type, active, created_at, last_triggered_at
+		notification_type, user_email, username, active, created_at, last_triggered_at
 		from price_alerts where active = true order by id asc`)
 	if err != nil {
 		return nil, err
@@ -498,7 +498,7 @@ func (r *Repository) ListActivePriceAlerts(ctx context.Context) ([]PriceAlert, e
 }
 
 func (r *Repository) SetPriceAlertLastTriggered(ctx context.Context, id int64, triggeredAt *time.Time) error {
-	_, err := r.db.Exec(ctx, `update price_alerts set last_triggered_at=$2 where id=$1`, id, triggeredAt)
+	_, err := r.db.Exec(ctx, `update price_alerts set last_triggered_at=$2, active = case when $2::timestamp is null then active else false end where id=$1`, id, triggeredAt)
 	return err
 }
 
@@ -507,7 +507,7 @@ func scanPriceAlerts(rows pgx.Rows) ([]PriceAlert, error) {
 	for rows.Next() {
 		var item PriceAlert
 		if err := rows.Scan(&item.ID, &item.UserID, &item.RecipientType, &item.ListingID, &item.Condition, &item.Threshold,
-			&item.NotificationType, &item.Active, &item.CreatedAt, &item.LastTriggeredAt); err != nil {
+			&item.NotificationType, &item.UserEmail, &item.Username, &item.Active, &item.CreatedAt, &item.LastTriggeredAt); err != nil {
 			return nil, err
 		}
 		out = append(out, item)

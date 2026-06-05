@@ -3,8 +3,13 @@ package http
 import (
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
+	gpauth "banka1/go-platform/auth"
+	"banka1/trading-service-go/internal/audit"
 	"banka1/trading-service-go/internal/api"
+	"banka1/trading-service-go/internal/clients"
 
 	"banka1/go-platform/httpx"
 )
@@ -17,6 +22,40 @@ func (h *Handlers) TaxCollect(w http.ResponseWriter, r *http.Request) {
 	if err := h.app.Tax.CollectMonthlyTaxManually(r.Context()); err != nil {
 		writeDomainError(w, r, err)
 		return
+	}
+	if h.app.Audit != nil {
+		if principal, ok := gpauth.PrincipalFromContext(r.Context()); ok {
+			actorID := principal.ID
+			actorName := principal.Email
+			if actorName == "" {
+				actorName = principal.Subject
+			}
+			if emp, err := h.app.Employees.GetEmployee(clients.WithCallerAuth(r.Context(), r.Header.Get("Authorization")), actorID); err == nil && emp != nil {
+				parts := []string{}
+				if emp.Ime != nil {
+					parts = append(parts, strings.TrimSpace(*emp.Ime))
+				}
+				if emp.Prezime != nil {
+					parts = append(parts, strings.TrimSpace(*emp.Prezime))
+				}
+				if name := strings.TrimSpace(strings.Join(parts, " ")); name != "" {
+					actorName = name
+				}
+			}
+			targetType := "TAX"
+			targetID := time.Now().UTC().Format("2006-01")
+			details := "Rucni obracun poreza pokrenut."
+			ts := time.Now().UnixMilli()
+			h.app.Audit.RecordBestEffort(r.Context(), audit.Event{
+				ActorID:    &actorID,
+				ActorName:  &actorName,
+				ActionType: audit.ActionTaxRunManual,
+				TargetType: &targetType,
+				TargetID:   &targetID,
+				Details:    &details,
+				Timestamp:  &ts,
+			})
+		}
 	}
 	httpx.JSON(w, http.StatusOK, nil)
 }

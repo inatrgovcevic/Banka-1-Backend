@@ -50,6 +50,7 @@ type CreateRecurringOrderRequest struct {
 	AccountID *int64           `json:"accountId"`
 	Cadence   *string          `json:"cadence"`
 	NextRun   *string          `json:"nextRun"`
+	DayOfMonth *int            `json:"dayOfMonth"`
 }
 
 // RecurringOrderDto ↔ order-service RecurringOrderDto (all entity fields).
@@ -70,7 +71,6 @@ type RecurringOrderDto struct {
 // RecurringOrderSkippedNotification ↔ order-service RecurringOrderSkippedNotification
 // — the order.recurring_skipped payload. clientId drives the FCM token lookup:
 // the owner's user id for client owners, null for actuaries (no device push).
-// username/userEmail stay null (the push-only notification path needs neither).
 type RecurringOrderSkippedNotification struct {
 	Username          *string           `json:"username"`
 	UserEmail         *string           `json:"userEmail"`
