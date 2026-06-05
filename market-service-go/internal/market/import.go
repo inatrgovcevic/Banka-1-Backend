@@ -390,6 +390,9 @@ func (s *Service) RefreshAllStocks(ctx context.Context) ([]api.StockMarketDataRe
 			}
 		}
 	}
+	if _, err := s.EvaluateActivePriceAlerts(ctx); err != nil && s.logger != nil {
+		s.logger.Warn("price alert evaluation after stock refresh failed", "error", err.Error())
+	}
 	return out, nil
 }
 

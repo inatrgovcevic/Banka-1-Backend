@@ -109,7 +109,34 @@ func (h *Handlers) AuditLog(w http.ResponseWriter, r *http.Request) {
 // description. Newest 100 rows, like the stub.
 func (h *Handlers) AuditLogLegacy(w http.ResponseWriter, r *http.Request) {
 	repo := h.app.Audit.Repo()
-	rows, _, err := repo.Search(r.Context(), repo.Pool(), audit.SearchFilter{Page: 0, Size: 100})
+	q := r.URL.Query()
+
+	var actionType *string
+	if raw := strings.TrimSpace(q.Get("actionType")); raw != "" {
+		if !audit.ValidActionTypes[raw] {
+			writeDomainError(w, r, api.NewOrderError(http.StatusBadRequest, "Nepoznat actionType: '"+raw+"'"))
+			return
+		}
+		actionType = &raw
+	}
+	from, ok := parseAuditBound(firstNonEmpty(q.Get("from"), q.Get("fromDate")), true)
+	if !ok {
+		writeDomainError(w, r, api.NewOrderError(http.StatusBadRequest, "Neispravan datum za 'from'"))
+		return
+	}
+	to, ok := parseAuditBound(firstNonEmpty(q.Get("to"), q.Get("toDate")), false)
+	if !ok {
+		writeDomainError(w, r, api.NewOrderError(http.StatusBadRequest, "Neispravan datum za 'to'"))
+		return
+	}
+
+	rows, _, err := repo.Search(r.Context(), repo.Pool(), audit.SearchFilter{
+		ActionType: actionType,
+		From:       from,
+		To:         to,
+		Page:       0,
+		Size:       100,
+	})
 	if err != nil {
 		writeDomainError(w, r, err)
 		return
@@ -183,7 +210,35 @@ func (h *Handlers) AuditLogLegacy(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, entry)
 	}
+	if user := strings.ToLower(strings.TrimSpace(q.Get("user"))); user != "" {
+		filtered := make([]map[string]any, 0, len(out))
+		for _, entry := range out {
+			if containsAuditUser(entry, user) {
+				filtered = append(filtered, entry)
+			}
+		}
+		out = filtered
+	}
 	httpx.JSON(w, http.StatusOK, out)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func containsAuditUser(entry map[string]any, needle string) bool {
+	for _, key := range []string{"actorName", "targetName"} {
+		value, ok := entry[key].(string)
+		if ok && strings.Contains(strings.ToLower(value), needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseAuditBound mirrors AuditLogController.parseRangeBound: date-time first,

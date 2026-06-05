@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"Banka1Back/credit-service-go/internal/auth"
@@ -13,19 +14,28 @@ import (
 )
 
 type LoanService struct {
-	loanRequestRepo     LoanRequestRepository
-	loanRepo            LoanRepository
-	installmentRepo     InstallmentRepository
-	accountGateway      AccountGateway
-	notifier            NotificationPublisher
-	exchangeGateway     ExchangeGateway
-	clientGateway       ClientGateway
+	loanRequestRepo LoanRequestRepository
+	loanRepo        LoanRepository
+	installmentRepo InstallmentRepository
+	accountGateway  AccountGateway
+	notifier        NotificationPublisher
+	exchangeGateway ExchangeGateway
+	clientGateway   ClientGateway
 }
 
 type EmailEvent struct {
-	UserEmail string `json:"userEmail"`
-	Username  string `json:"username"`
-	EmailType string `json:"emailType"`
+	UserEmail         string            `json:"userEmail"`
+	Username          string            `json:"username"`
+	EmailType         string            `json:"emailType"`
+	TemplateVariables map[string]string `json:"templateVariables,omitempty"`
+}
+
+func formatID(id int64) string {
+	return strconv.FormatInt(id, 10)
+}
+
+func formatMoney(amount decimal.Decimal, currency model.CurrencyCode) string {
+	return amount.StringFixed(2) + " " + string(currency)
 }
 
 func NewLoanService(
@@ -144,6 +154,9 @@ func (s *LoanService) Confirmation(ctx context.Context, id int64, status model.S
 			UserEmail: loanRequest.UserEmail,
 			Username:  loanRequest.Username,
 			EmailType: "credit.declined",
+			TemplateVariables: map[string]string{
+				"creditId": formatID(id),
+			},
 		})
 
 		return "ODBIJEN ZAHTEV", nil
@@ -232,6 +245,10 @@ func (s *LoanService) Confirmation(ctx context.Context, id int64, status model.S
 		UserEmail: loanRequest.UserEmail,
 		Username:  loanRequest.Username,
 		EmailType: "credit.approved",
+		TemplateVariables: map[string]string{
+			"creditId":       formatID(id),
+			"approvedAmount": formatMoney(loanRequest.Amount, loanRequest.Currency),
+		},
 	})
 
 	return "ODOBREN ZAHTEV", nil
