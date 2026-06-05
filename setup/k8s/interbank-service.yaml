@@ -1,0 +1,141 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: interbank-service
+  namespace: banka-1
+spec:
+  selector:
+    app: interbank-service
+  ports:
+    - name: http
+      port: 8091
+      targetPort: http
+    - name: grpc
+      port: 9091
+      targetPort: grpc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: interbank-service
+  namespace: banka-1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: interbank-service
+  template:
+    metadata:
+      labels:
+        app: interbank-service
+    spec:
+      containers:
+        - name: interbank-service
+          image: ghcr.io/raf-si-2025/banka-1-interbank-service:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8091
+            - name: grpc
+              containerPort: 9091
+          env:
+            - name: INTERBANK_SERVER_HTTP_PORT
+              value: "8091"
+            - name: INTERBANK_SERVER_GRPC_PORT
+              value: "9091"
+            - name: INTERBANK_SERVER_MIGRATIONS_PATH
+              value: /migrations
+            - name: INTERBANK_SERVER_LOG_LEVEL
+              value: info
+            - name: INTERBANK_SERVER_LOG_JSON
+              value: "true"
+            - name: INTERBANK_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: host
+            - name: INTERBANK_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: port
+            - name: INTERBANK_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: dbname
+            - name: INTERBANK_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: user
+            - name: INTERBANK_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: password
+            - name: INTERBANK_DB_URL
+              value: postgres://$(INTERBANK_DB_USER):$(INTERBANK_DB_PASSWORD)@$(INTERBANK_DB_HOST):$(INTERBANK_DB_PORT)/$(INTERBANK_DB_NAME)?sslmode=disable
+            - name: INTERBANK_DB_MAX_CONNS
+              value: "10"
+            - name: INTERBANK_DB_MIN_CONNS
+              value: "2"
+            - name: INTERBANK_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: JWT_SECRET
+            - name: INTERBANK_JWT_ISSUER
+              value: banka1
+            - name: INTERBANK_PROFILE
+              value: dev
+            - name: INTERBANK_INTERBANK_MY_ROUTING_NUMBER
+              value: "111"
+            - name: INTERBANK_INTERBANK_MY_BANK_DISPLAY_NAME
+              value: Banka 1
+            - name: INTERBANK_INTERBANK_MOCK_PARTNER_ENABLED
+              value: "false"
+            - name: INTERBANK_INTERBANK_SERVICES_BANKING_CORE_URL
+              value: http://banking-core-service:8084
+            - name: INTERBANK_INTERBANK_SERVICES_TRADING_URL
+              value: http://trading-service:8088
+            - name: INTERBANK_INTERBANK_SERVICES_USER_URL
+              value: http://user-service:8081
+            - name: INTERBANK_INTERBANK_SERVICES_TIMEOUT
+              value: 5s
+            - name: INTERBANK_INTERBANK_OUTBOUND_TIMEOUT
+              value: 60s
+            - name: INTERBANK_INTERBANK_RETRY_INTERVAL
+              value: 2m
+            - name: INTERBANK_INTERBANK_RETRY_MAX_RETRIES
+              value: "5"
+            - name: BANKA2_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: BANKA2_BASE_URL
+            - name: BANKA2_INBOUND_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: BANKA2_INBOUND_TOKEN
+            - name: BANKA2_OUTBOUND_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: BANKA2_OUTBOUND_TOKEN
+            - name: INTERBANK_PARTNERS_JSON
+              value: >-
+                [{"Routing":222,"DisplayName":"Banka 2","BaseURL":"$(BANKA2_BASE_URL)","InboundToken":"$(BANKA2_INBOUND_TOKEN)","OutboundToken":"$(BANKA2_OUTBOUND_TOKEN)"}]
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15

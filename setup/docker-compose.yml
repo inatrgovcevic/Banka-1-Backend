@@ -759,8 +759,8 @@ services:
   # 6/7. Credit Service (Go rewrite)
   credit-service:
     build:
-      context: ../credit-service-go
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: credit-service-go/Dockerfile
     container_name: banka_credit_service
     restart: unless-stopped
     env_file:

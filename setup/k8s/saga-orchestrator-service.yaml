@@ -1,0 +1,123 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: saga-orchestrator-service
+  namespace: banka-1
+spec:
+  selector:
+    app: saga-orchestrator-service
+  ports:
+    - name: http
+      port: 8095
+      targetPort: http
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: saga-orchestrator-service
+  namespace: banka-1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: saga-orchestrator-service
+  template:
+    metadata:
+      labels:
+        app: saga-orchestrator-service
+    spec:
+      containers:
+        - name: saga-orchestrator-service
+          image: ghcr.io/raf-si-2025/banka-1-saga-orchestrator-service:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8095
+          env:
+            - name: SAGA_SERVER_HTTP_PORT
+              value: "8095"
+            - name: SAGA_SERVER_MIGRATIONS_PATH
+              value: /migrations
+            - name: SAGA_SERVER_LOG_LEVEL
+              value: info
+            - name: SAGA_SERVER_LOG_JSON
+              value: "true"
+            - name: SAGA_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: host
+            - name: SAGA_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: port
+            - name: SAGA_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: dbname
+            - name: SAGA_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: user
+            - name: SAGA_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: password
+            - name: SAGA_DB_URL
+              value: postgres://$(SAGA_DB_USER):$(SAGA_DB_PASSWORD)@$(SAGA_DB_HOST):$(SAGA_DB_PORT)/$(SAGA_DB_NAME)?sslmode=allow
+            - name: SAGA_DB_MAX_CONNS
+              value: "10"
+            - name: SAGA_DB_MIN_CONNS
+              value: "2"
+            - name: SAGA_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: JWT_SECRET
+            - name: SAGA_JWT_ISSUER
+              value: banka1
+            - name: SAGA_PROFILE
+              value: dev
+            - name: SAGA_RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: RABBITMQ_USERNAME
+            - name: SAGA_RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: RABBITMQ_PASSWORD
+            - name: SAGA_SAGA_RABBITMQ_URL
+              value: amqp://$(SAGA_RABBITMQ_USERNAME):$(SAGA_RABBITMQ_PASSWORD)@rabbitmq:5672/
+            - name: SAGA_SAGA_SERVICES_BANKING_CORE_URL
+              value: http://banking-core-service:8084
+            - name: SAGA_SAGA_SERVICES_TRADING_URL
+              value: http://trading-service:8088
+            - name: SAGA_SAGA_SERVICES_MARKET_URL
+              value: http://market-service:8085
+            - name: SAGA_SAGA_SERVICES_TIMEOUT
+              value: 30s
+            - name: SAGA_SAGA_CLEANUP_INTERVAL
+              value: 15m
+            - name: SAGA_SAGA_CLEANUP_STUCK_CUTOFF
+              value: 1h
+            - name: SAGA_SAGA_CLEANUP_IDEMPOTENCY_RETENTION
+              value: 336h
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
