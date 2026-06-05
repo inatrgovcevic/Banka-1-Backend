@@ -18,15 +18,12 @@ const express = require("express");
 const PORT = parseInt(process.env.PORT || "9094", 10);
 const TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DEVELOPER_DISCORD_ID = process.env.DEVELOPER_DISCORD_ID;
-
-if (!TOKEN) {
-  console.error("ERROR: DISCORD_BOT_TOKEN env var is required.");
-  process.exit(1);
-}
-if (!DEVELOPER_DISCORD_ID) {
-  console.error("ERROR: DEVELOPER_DISCORD_ID env var is required.");
-  process.exit(1);
-}
+const botEnabled = Boolean(TOKEN && DEVELOPER_DISCORD_ID);
+const disabledReason = !TOKEN
+  ? "DISCORD_BOT_TOKEN is not configured"
+  : !DEVELOPER_DISCORD_ID
+    ? "DEVELOPER_DISCORD_ID is not configured"
+    : null;
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages],
@@ -34,15 +31,19 @@ const client = new Client({
 });
 
 let botReady = false;
-client.once("ready", () => {
-  console.log(`[bot] logged in as ${client.user.tag}`);
-  botReady = true;
-});
-client.on("error", (err) => console.error("[bot] client error:", err));
-client.login(TOKEN).catch((err) => {
-  console.error("[bot] login failed:", err);
-  process.exit(1);
-});
+if (botEnabled) {
+  client.once("ready", () => {
+    console.log(`[bot] logged in as ${client.user.tag}`);
+    botReady = true;
+  });
+  client.on("error", (err) => console.error("[bot] client error:", err));
+  client.login(TOKEN).catch((err) => {
+    console.error("[bot] login failed:", err);
+    process.exit(1);
+  });
+} else {
+  console.warn(`[bot] disabled: ${disabledReason}`);
+}
 
 function formatAlert(alert, status) {
   const severity = alert.labels?.severity || "info";
@@ -72,10 +73,19 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_req, res) => {
-  res.status(botReady ? 200 : 503).json({ ready: botReady });
+  res.status(200).json({
+    enabled: botEnabled,
+    ready: botEnabled ? botReady : false,
+    reason: disabledReason,
+  });
 });
 
 app.post("/alert", async (req, res) => {
+  if (!botEnabled) {
+    console.warn("[bot] dropping alert because the bot is disabled");
+    return res.status(202).json({ status: "disabled", reason: disabledReason });
+  }
+
   if (!botReady) {
     return res.status(503).json({ error: "bot not ready" });
   }

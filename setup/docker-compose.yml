@@ -356,6 +356,7 @@ services:
     build:
       context: ..
       dockerfile: notification-service-go/Dockerfile
+    image: setup-notification-service-go
     container_name: notification-service
     restart: unless-stopped
     env_file:
@@ -422,6 +423,7 @@ services:
       dockerfile: user-service-go/Dockerfile
       args:
         SERVER_PORT: ${USER_SERVICE_PORT:-8081}
+    image: setup-user-service-go
     container_name: banka_user_service
     restart: unless-stopped
     env_file:
@@ -488,6 +490,7 @@ services:
       dockerfile: banking-core-service-go/Dockerfile
       args:
         SERVER_PORT: ${BANKING_CORE_SERVICE_PORT:-8084}
+    image: setup-banking-core-service-go
     container_name: banka_banking_core_service
     restart: unless-stopped
     env_file:
@@ -559,6 +562,7 @@ services:
       dockerfile: market-service-go/Dockerfile
       args:
         SERVER_PORT: ${MARKET_SERVICE_PORT:-8085}
+    image: setup-market-service-go
     container_name: banka_market_service
     restart: unless-stopped
     env_file:
@@ -686,6 +690,7 @@ services:
     build:
       context: ..
       dockerfile: trading-service-go/Dockerfile
+    image: setup-trading-service-go
     container_name: banka_trading_service
     restart: unless-stopped
     env_file:
@@ -759,8 +764,9 @@ services:
   # 6/7. Credit Service (Go rewrite)
   credit-service:
     build:
-      context: ../credit-service-go
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: credit-service-go/Dockerfile
+    image: setup-credit-service-go
     container_name: banka_credit_service
     restart: unless-stopped
     env_file:
@@ -836,6 +842,7 @@ services:
     build:
       context: ..
       dockerfile: saga-orchestrator-service/Dockerfile
+    image: setup-saga-orchestrator-service-go
     container_name: saga-orchestrator-service
     restart: unless-stopped
     env_file:
@@ -909,6 +916,7 @@ services:
     build:
       context: ..
       dockerfile: interbank-service/Dockerfile
+    image: setup-interbank-service-go
     container_name: banka_interbank_service
     restart: unless-stopped
     env_file:
@@ -1041,7 +1049,13 @@ services:
       INTERBANK_SERVICE_PORT: ${INTERBANK_SERVER_PORT:-8091}
     depends_on:
       user-service: { condition: service_healthy }
+      banking-core-service: { condition: service_healthy }
       market-service: { condition: service_healthy }
+      trading-service: { condition: service_healthy }
+      credit-service: { condition: service_healthy }
+      notification-service: { condition: service_healthy }
+      saga-orchestrator-service: { condition: service_healthy }
+      interbank-service: { condition: service_healthy }
     networks:
       - banka-network
     healthcheck:

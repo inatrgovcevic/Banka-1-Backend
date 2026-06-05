@@ -1,48 +1,75 @@
 name: cd-go
+
 # Build + push GHCR images for every consolidated Go service.
 #
-# WHY THIS EXISTS: ci-go.yml only vets/builds/tests and does a throwaway local
-# `docker build -t ...:ci` for interbank-service — it NEVER pushes to GHCR, and
-# never builds the other 7 Go services. So the images the k8s manifests reference
-# (ghcr.io/raf-si-2025/banka-1-<service>:latest) did not exist. This workflow
-# creates them. imagePullPolicy: Always + :latest + `kubectl rollout restart`
-# then pulls the newest image — the exact model Banka 2 uses.
-#
-# All Go services share the go.work workspace, so the Docker build CONTEXT is the
-# repo root (.) and the Dockerfile is <service-dir>/Dockerfile.
+# WHY THIS EXISTS: ci-go.yml only vets/builds/tests and does not publish images.
+# This workflow validates Docker builds on pull requests and publishes the images
+# to GHCR only after changes land on main.
 
 on:
+  pull_request:
+    paths:
+      - 'go-platform/**'
+      - 'user-service-go/**'
+      - 'banking-core-service-go/**'
+      - 'market-service-go/**'
+      - 'trading-service-go/**'
+      - 'credit-service-go/**'
+      - 'notification-service-go/**'
+      - 'interbank-service/**'
+      - 'saga-orchestrator-service/**'
+      - 'shared/**'
+      - 'go.work'
+      - 'proto/**'
+      - '.github/workflows/ci-go.yml'
+      - '.github/workflows/cd-go.yml'
   push:
     branches: [main]
     paths:
-      - '**/*.go'
-      - '**/go.mod'
-      - '**/go.sum'
+      - 'go-platform/**'
+      - 'user-service-go/**'
+      - 'banking-core-service-go/**'
+      - 'market-service-go/**'
+      - 'trading-service-go/**'
+      - 'credit-service-go/**'
+      - 'notification-service-go/**'
+      - 'interbank-service/**'
+      - 'saga-orchestrator-service/**'
+      - 'shared/**'
       - 'go.work'
       - 'proto/**'
-      - '**/Dockerfile'
+      - '.github/workflows/ci-go.yml'
       - '.github/workflows/cd-go.yml'
-  workflow_dispatch: {}   # manual "Run workflow" button
+  workflow_dispatch: {}
 
 permissions:
   contents: read
-  packages: write          # required to push to GHCR
+  packages: write
 
 jobs:
   build-push:
+    name: docker (${{ matrix.image }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { image: banka-1-user-service,                dockerfile: user-service-go/Dockerfile }
-          - { image: banka-1-banking-core-service,        dockerfile: banking-core-service-go/Dockerfile }
-          - { image: banka-1-market-service,              dockerfile: market-service-go/Dockerfile }
-          - { image: banka-1-trading-service,             dockerfile: trading-service-go/Dockerfile }
-          - { image: banka-1-credit-service,              dockerfile: credit-service-go/Dockerfile }
-          - { image: banka-1-notification-service,        dockerfile: notification-service-go/Dockerfile }
-          - { image: banka-1-saga-orchestrator-service,   dockerfile: saga-orchestrator-service/Dockerfile }
-          - { image: banka-1-interbank-service,           dockerfile: interbank-service/Dockerfile }
+          - image: banka-1-user-service
+            dockerfile: user-service-go/Dockerfile
+          - image: banka-1-banking-core-service
+            dockerfile: banking-core-service-go/Dockerfile
+          - image: banka-1-market-service
+            dockerfile: market-service-go/Dockerfile
+          - image: banka-1-trading-service
+            dockerfile: trading-service-go/Dockerfile
+          - image: banka-1-credit-service
+            dockerfile: credit-service-go/Dockerfile
+          - image: banka-1-notification-service
+            dockerfile: notification-service-go/Dockerfile
+          - image: banka-1-saga-orchestrator-service
+            dockerfile: saga-orchestrator-service/Dockerfile
+          - image: banka-1-interbank-service
+            dockerfile: interbank-service/Dockerfile
     steps:
       - uses: actions/checkout@v4
 
@@ -53,18 +80,19 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build + push ${{ matrix.image }}
+      - name: Build ${{ matrix.image }}
         uses: docker/build-push-action@v6
         with:
-          context: .                              # go.work workspace root
+          context: .
           file: ${{ matrix.dockerfile }}
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: |
             ghcr.io/${{ steps.owner.outputs.owner }}/${{ matrix.image }}:latest
             ghcr.io/${{ steps.owner.outputs.owner }}/${{ matrix.image }}:${{ github.sha }}

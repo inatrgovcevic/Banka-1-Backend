@@ -1,20 +1,23 @@
-FROM golang:latest AS builder
+FROM golang:1.26.3-alpine AS builder
 
 WORKDIR /app
 
-COPY go.mod go.sum ./
+# Build context in CI is the repo root, so copy this module explicitly.
+COPY credit-service-go/go.mod credit-service-go/go.sum ./
 RUN go mod download
 
-COPY . .
+COPY credit-service-go/ .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o credit-service ./cmd/credit-service
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/credit-service ./cmd/credit-service
 
 FROM alpine:3.20
 
 WORKDIR /app
 
-COPY --from=builder /app/credit-service .
-COPY --from=builder /app/migrations ./migrations
+RUN apk add --no-cache ca-certificates
+
+COPY --from=builder /out/credit-service /app/credit-service
+COPY credit-service-go/migrations /app/migrations
 
 EXPOSE 8085
 

@@ -1,0 +1,134 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: market-service
+  namespace: banka-1
+spec:
+  selector:
+    app: market-service
+  ports:
+    - name: http
+      port: 8085
+      targetPort: http
+    - name: grpc
+      port: 9085
+      targetPort: grpc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: market-service
+  namespace: banka-1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: market-service
+  template:
+    metadata:
+      labels:
+        app: market-service
+    spec:
+      containers:
+        - name: market-service
+          image: ghcr.io/raf-si-2025/banka-1-market-service:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8085
+            - name: grpc
+              containerPort: 9085
+          env:
+            - name: SERVER_PORT
+              value: "8085"
+            - name: GRPC_PORT
+              value: "9085"
+            - name: MARKET_SERVICE_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: host
+            - name: MARKET_SERVICE_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: port
+            - name: MARKET_SERVICE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: dbname
+            - name: MARKET_SERVICE_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: user
+            - name: MARKET_SERVICE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: password
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: JWT_SECRET
+            - name: BANKA_SECURITY_ISSUER
+              value: banka1
+            - name: BANKA_SECURITY_ID_CLAIM
+              value: id
+            - name: BANKA_SECURITY_ROLES_CLAIM
+              value: roles
+            - name: BANKA_SECURITY_PERMISSIONS_CLAIM
+              value: permissions
+            - name: BANKA_SECURITY_CORS_ALLOWED_ORIGINS
+              value: https://banka-1.radenkovic.rs
+            - name: STOCK_MARKET_DATA_BASE_URL
+              value: https://www.alphavantage.co
+            - name: ALPHA_VANTAGE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: ALPHA_VANTAGE_API_KEY
+            - name: STOCK_EXCHANGE_SERVICE_URL
+              value: http://market-service:8085
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: EXCHANGE_TWELVE_DATA_BASE_URL
+              value: https://api.twelvedata.com
+            - name: TWELVE_DATA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: TWELVE_DATA_API_KEY
+            - name: EXCHANGE_MARGIN_PERCENTAGE
+              value: "1.0"
+            - name: EXCHANGE_COMMISSION_PERCENTAGE
+              value: "0.70"
+            - name: EXCHANGE_RATES_FETCH_CRON
+              value: "0 0 8 * * *"
+            - name: STOCK_INFLUX_URL
+              value: http://influxdb:8086
+            - name: STOCK_INFLUX_ORG
+              value: banka1
+            - name: STOCK_INFLUX_BUCKET
+              value: market_data
+            - name: STOCK_INFLUX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: INFLUX_ADMIN_TOKEN
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15

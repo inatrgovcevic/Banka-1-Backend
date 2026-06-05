@@ -1,0 +1,19 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: banka-1
+  namespace: banka-1
+spec:
+  parentRefs:
+    - name: banka-gw
+      namespace: envoy-gateway-system
+  hostnames:
+    - banka-1.radenkovic.rs
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: frontend
+          port: 80

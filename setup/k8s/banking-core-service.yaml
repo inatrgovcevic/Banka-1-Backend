@@ -1,0 +1,118 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: banking-core-service
+  namespace: banka-1
+spec:
+  selector:
+    app: banking-core-service
+  ports:
+    - name: http
+      port: 8084
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: banking-core-service
+  namespace: banka-1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: banking-core-service
+  template:
+    metadata:
+      labels:
+        app: banking-core-service
+    spec:
+      containers:
+        - name: banking-core-service
+          image: ghcr.io/raf-si-2025/banka-1-banking-core-service:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8084
+          env:
+            - name: SERVER_PORT
+              value: "8084"
+            - name: BANKING_CORE_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: host
+            - name: BANKING_CORE_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: port
+            - name: BANKING_CORE_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: dbname
+            - name: BANKING_CORE_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: user
+            - name: BANKING_CORE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-pguser-db
+                  key: password
+            - name: LIQUIBASE_CONTEXTS
+              value: dev
+            - name: RABBITMQ_HOST
+              value: rabbitmq
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: RABBITMQ_USERNAME
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: RABBITMQ_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: banka-app-secrets
+                  key: JWT_SECRET
+            - name: BANKA_SECURITY_ISSUER
+              value: banka1
+            - name: BANKA_SECURITY_ROLES_CLAIM
+              value: roles
+            - name: BANKA_SECURITY_PERMISSIONS_CLAIM
+              value: permissions
+            - name: BANKA_SECURITY_EXPIRATION_TIME
+              value: "3600000"
+            - name: NOTIFICATION_EXCHANGE
+              value: employee.events
+            - name: NOTIFICATION_ROUTING_KEY
+              value: employee.#
+            - name: SERVICES_ACCOUNT_URL
+              value: http://banking-core-service:8084
+            - name: SERVICES_EXCHANGE_URL
+              value: http://market-service:8085
+            - name: SERVICES_USER_URL
+              value: http://user-service:8081
+            - name: SERVICES_VERIFICATION_URL
+              value: http://banking-core-service:8084/verification
+            - name: CARD_CREATION_AUTOMATIC_DEFAULT_LIMIT
+              value: "1000000"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15

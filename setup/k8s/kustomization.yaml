@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: banka-1
+
+resources:
+  - 00-namespace.yaml
+  - app-secrets.yaml
+  - db.yaml
+  - redis.yaml
+  - rabbitmq.yaml
+  - influxdb.yaml
+  - user-service.yaml
+  - banking-core-service.yaml
+  - market-service.yaml
+  - trading-service.yaml
+  - credit-service.yaml
+  - notification-service.yaml
+  - saga-orchestrator-service.yaml
+  - interbank-service.yaml
+  - frontend.yaml
+  - route.yaml
